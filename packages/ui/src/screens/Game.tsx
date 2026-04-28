@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { Room } from "colyseus.js";
 import { createGame } from "@vibe-game/client";
 import type { GameState } from "@vibe-game/shared";
+import { Hud } from "./Hud";
 
 interface GameScreenProps {
   room: Room<GameState>;
@@ -23,13 +24,7 @@ export function Game({ room, onLeave }: GameScreenProps) {
     <div className="screen game-screen">
       <div className="game-shell">
         <div ref={containerRef} className="game-canvas" />
-        <aside className="hud-placeholder">
-          <p className="muted">HUD kommt in Schritt 9.</p>
-          <p className="muted">Server-State synchronisiert: {room.state.players.size} Spieler</p>
-          <button onClick={onLeave} className="ghost">
-            Lobby verlassen
-          </button>
-        </aside>
+        <Hud room={room} onLeave={onLeave} />
       </div>
     </div>
   );
