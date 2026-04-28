@@ -1,0 +1,24 @@
+{
+  "name": "@vibe-game/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vibe-game/shared": "workspace:*",
+    "colyseus.js": "^0.16.0",
+    "phaser": "^3.85.2"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}
