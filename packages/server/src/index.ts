@@ -9,6 +9,16 @@ const port = Number(process.env.PORT) || 2567;
 const app = express();
 app.use(express.json());
 
+// CORS: Browser-Clients von anderen Origins (z.B. localhost:5173) dürfen
+// die HTTP-Endpoints für Lobby-Lookup nutzen. WebSockets (Colyseus) sind
+// davon nicht betroffen.
+app.use((_req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
+
 app.get("/", (_req, res) => {
   res.json({ name: "vibe-game server", status: "ok" });
 });
