@@ -7,10 +7,14 @@
  */
 
 import { grunt } from "./grunt";
+import { brute } from "./brute";
+import { ravager } from "./ravager";
 import type { EnemyDefinition } from "./types";
 
 export const ENEMIES = {
   grunt,
+  brute,
+  ravager,
 } as const;
 
 export type EnemyId = keyof typeof ENEMIES;
@@ -28,4 +32,4 @@ export function listEnemies(): EnemyDefinition[] {
 }
 
 export type { EnemyDefinition };
-export { grunt };
+export { grunt, brute, ravager };

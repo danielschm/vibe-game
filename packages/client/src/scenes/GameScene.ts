@@ -27,11 +27,26 @@ interface SlotZone {
   y: number;
 }
 
+interface EnemyView {
+  container: Phaser.GameObjects.Container;
+  hpFill: Phaser.GameObjects.Rectangle;
+}
+
+const BAR_W = 28;
+const BAR_H = 4;
+const BAR_Y = -20;
+
+function hpColor(ratio: number): number {
+  if (ratio > 0.6) return 0x22c55e;
+  if (ratio > 0.3) return 0xeab308;
+  return 0xef4444;
+}
+
 export class GameScene extends Phaser.Scene {
   private room: Room<GameState> | null = null;
   private lanes: LaneLayout[] = [];
   private slotZones: SlotZone[] = [];
-  private enemySprites = new Map<string, Phaser.GameObjects.Arc>();
+  private enemyViews = new Map<string, EnemyView>();
   private towerSprites = new Map<string, Phaser.GameObjects.Container>();
 
   constructor() {
@@ -69,18 +84,15 @@ export class GameScene extends Phaser.Scene {
   override update(): void {
     if (!this.room) return;
     for (const [id, enemy] of this.room.state.enemies as unknown as Map<string, Enemy>) {
-      const sprite = this.enemySprites.get(id);
-      if (!sprite) continue;
+      const view = this.enemyViews.get(id);
+      if (!view) continue;
       const lane = this.lanes[enemy.laneIndex];
       if (!lane) continue;
       const x = lane.spawnX + enemy.progress * lane.laneLength;
-      sprite.setPosition(x, lane.y);
-
-      const def = getEnemy(enemy.enemyType);
-      if (def) sprite.fillColor = def.color;
-
+      view.container.setPosition(x, lane.y);
       const hpRatio = enemy.hpMax > 0 ? enemy.hp / enemy.hpMax : 0;
-      sprite.setScale(0.7 + 0.3 * hpRatio);
+      view.hpFill.scaleX = Math.max(0, hpRatio);
+      view.hpFill.fillColor = hpColor(hpRatio);
     }
   }
 
@@ -210,14 +222,22 @@ export class GameScene extends Phaser.Scene {
 
     enemies.onAdd((enemy, key) => {
       const def = getEnemy(enemy.enemyType);
-      const sprite = this.add.circle(0, 0, 12, def?.color ?? 0xef4444);
-      sprite.setStrokeStyle(2, 0x000000, 0.4);
-      this.enemySprites.set(key, sprite);
+      const color = def?.color ?? 0xef4444;
+
+      const body = this.add.circle(0, 0, 12, color);
+      body.setStrokeStyle(2, 0x000000, 0.5);
+
+      const hpBg = this.add.rectangle(0, BAR_Y, BAR_W, BAR_H, 0x1a1a2e);
+      const hpFill = this.add.rectangle(-BAR_W / 2, BAR_Y, BAR_W, BAR_H, 0x22c55e);
+      hpFill.setOrigin(0, 0.5);
+
+      const container = this.add.container(0, 0, [body, hpBg, hpFill]);
+      this.enemyViews.set(key, { container, hpFill });
     });
 
     enemies.onRemove((_enemy, key) => {
-      this.enemySprites.get(key)?.destroy();
-      this.enemySprites.delete(key);
+      this.enemyViews.get(key)?.container.destroy();
+      this.enemyViews.delete(key);
     });
   }
 
