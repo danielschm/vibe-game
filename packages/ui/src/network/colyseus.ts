@@ -23,5 +23,24 @@ export async function joinLobby(
     throw new Error(`Server-Fehler: ${res.status}`);
   }
   const { roomId } = (await res.json()) as { roomId: string };
-  return await colyseusClient.joinById<GameState>(roomId, { playerName });
+  try {
+    return await colyseusClient.joinById<GameState>(roomId, { playerName });
+  } catch (err) {
+    throw friendlyJoinError(err, trimmedCode);
+  }
+}
+
+function friendlyJoinError(err: unknown, code: string): Error {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  if (/is locked/i.test(raw) || /room is full/i.test(raw)) {
+    return new Error("Der Raum ist leider schon voll.");
+  }
+  if (/Lobby ist bereits geschlossen/i.test(raw) || /already in progress/i.test(raw)) {
+    return new Error("Das Spiel läuft schon — du kannst der Lobby nicht mehr beitreten.");
+  }
+  if (/not found/i.test(raw)) {
+    return new Error(`Lobby mit Code "${code}" nicht gefunden.`);
+  }
+  return new Error(raw || "Beitritt fehlgeschlagen.");
 }
