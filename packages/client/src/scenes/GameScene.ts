@@ -97,12 +97,16 @@ export class GameScene extends Phaser.Scene {
   private slotZones: SlotZone[] = [];
   private enemyViews = new Map<string, EnemyView>();
   private towerSprites = new Map<string, Phaser.GameObjects.Container>();
+  private sceneAlive = false;
 
   constructor() {
     super({ key: "Game" });
   }
 
   create(): void {
+    this.sceneAlive = true;
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => { this.sceneAlive = false; });
+
     this.room = (this.game.registry.get("room") as Room<GameState> | undefined) ?? null;
 
     this.lanes = this.computeLaneLayout();
@@ -125,6 +129,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshSlotInteractivity();
 
     this.room.onStateChange(() => {
+      if (!this.sceneAlive) return;
       this.syncTowerSprites();
       this.refreshSlotInteractivity();
     });
@@ -273,6 +278,7 @@ export class GameScene extends Phaser.Scene {
     };
 
     enemies.onAdd((enemy, key) => {
+      if (!this.sceneAlive) return;
       const def = getEnemy(enemy.enemyType);
       const color = def?.color ?? 0xef4444;
 
@@ -288,6 +294,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     enemies.onRemove((_enemy, key) => {
+      if (!this.sceneAlive) return;
       this.enemyViews.get(key)?.container.destroy();
       this.enemyViews.delete(key);
     });
@@ -330,10 +337,12 @@ export class GameScene extends Phaser.Scene {
     };
 
     towers.onAdd((tower, key) => {
+      if (!this.sceneAlive) return;
       if (!this.towerSprites.has(key)) this.createTowerSprite(tower, key);
     });
 
     towers.onRemove((_tower, key) => {
+      if (!this.sceneAlive) return;
       this.towerSprites.get(key)?.destroy();
       this.towerSprites.delete(key);
     });
