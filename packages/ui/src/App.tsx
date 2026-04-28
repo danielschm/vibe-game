@@ -1,17 +1,45 @@
 import { useEffect, useState } from "react";
 import type { Room } from "colyseus.js";
 import type { GameState } from "@vibe-game/shared";
-import { createLobby, joinLobby } from "./network/colyseus";
+import { createLobby, joinLobby, reconnectToRoom } from "./network/colyseus";
 import { MainMenu } from "./screens/MainMenu";
 import { Lobby } from "./screens/Lobby";
 import { Game } from "./screens/Game";
 
 type View = "menu" | "lobby" | "game";
 
+const SESSION_KEY = "vg_session";
+
+function saveSession(r: Room<GameState>) {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: r.reconnectionToken }));
+}
+
+function clearSession() {
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+function viewFromPhase(phase: string): View {
+  return phase === "playing" || phase === "won" || phase === "lost" ? "game" : "lobby";
+}
+
 export function App() {
   const [view, setView] = useState<View>("menu");
   const [room, setRoom] = useState<Room<GameState> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
+
+  // Beim Start: gespeicherte Session wiederherstellen
+  useEffect(() => {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    const { token } = JSON.parse(raw) as { token: string };
+    reconnectToRoom(token)
+      .then((r) => {
+        attachRoomLifecycle(r);
+        setRoom(r);
+        setView(viewFromPhase(r.state.phase));
+      })
+      .catch(() => clearSession());
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase-Wechsel im State (lobby → playing) verfolgen
   useEffect(() => {
@@ -36,6 +64,7 @@ export function App() {
       attachRoomLifecycle(newRoom);
       setRoom(newRoom);
       setView("lobby");
+      saveSession(newRoom);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Unbekannter Fehler");
     }
@@ -48,6 +77,7 @@ export function App() {
       attachRoomLifecycle(newRoom);
       setRoom(newRoom);
       setView("lobby");
+      saveSession(newRoom);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Unbekannter Fehler");
     }
@@ -55,6 +85,7 @@ export function App() {
 
   function attachRoomLifecycle(r: Room<GameState>) {
     r.onLeave(() => {
+      clearSession();
       setRoom(null);
       setView("menu");
     });

@@ -162,13 +162,22 @@ export class GameRoom extends Room<GameState> {
     );
   }
 
-  override onLeave(client: Client, _consented?: boolean): void {
+  override async onLeave(client: Client, consented?: boolean): Promise<void> {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
 
     if (this.state.phase !== "lobby") {
       player.connected = false;
       console.log(`[GameRoom ${this.state.joinCode}] ${player.name} disconnected`);
+      if (!consented) {
+        try {
+          await this.allowReconnection(client, 30);
+          player.connected = true;
+          console.log(`[GameRoom ${this.state.joinCode}] ${player.name} reconnected`);
+        } catch {
+          console.log(`[GameRoom ${this.state.joinCode}] ${player.name} reconnection timed out`);
+        }
+      }
       return;
     }
 

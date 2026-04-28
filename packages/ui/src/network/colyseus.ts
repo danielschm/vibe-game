@@ -10,6 +10,10 @@ export async function createLobby(playerName: string): Promise<Room<GameState>> 
   return await colyseusClient.create<GameState>("game", { playerName });
 }
 
+export async function reconnectToRoom(reconnectionToken: string): Promise<Room<GameState>> {
+  return await colyseusClient.reconnect<GameState>(reconnectionToken);
+}
+
 export async function joinLobby(
   joinCode: string,
   playerName: string,

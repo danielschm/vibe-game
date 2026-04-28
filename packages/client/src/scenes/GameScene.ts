@@ -60,8 +60,10 @@ export class GameScene extends Phaser.Scene {
     this.subscribeTowers();
     this.refreshSlotInteractivity();
 
-    // Bei Player-Änderungen Slot-Highlights neu setzen (Lane-Zuweisung)
-    this.room.onStateChange(() => this.refreshSlotInteractivity());
+    this.room.onStateChange(() => {
+      this.syncTowerSprites();
+      this.refreshSlotInteractivity();
+    });
   }
 
   override update(): void {
@@ -219,6 +221,38 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private createTowerSprite(tower: Tower, key: string): void {
+    const lane = this.lanes[tower.laneIndex];
+    if (!lane) return;
+    const x =
+      lane.spawnX +
+      ((tower.slotIndex + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE) * lane.laneLength;
+    const y = lane.y - 28;
+    const def = getTower(tower.towerType);
+    const color = def?.color ?? 0x8b5cf6;
+    const base = this.add.rectangle(0, 0, 28, 28, color);
+    base.setStrokeStyle(2, 0x000000, 0.5);
+    const tip = this.add.triangle(0, -10, 0, -8, -8, 8, 8, 8, 0xffffff, 0.85);
+    const container = this.add.container(x, y, [base, tip]);
+    this.towerSprites.set(key, container);
+  }
+
+  private syncTowerSprites(): void {
+    if (!this.room) return;
+    const stateTowers = this.room.state.towers as unknown as Map<string, Tower>;
+    for (const [key, tower] of stateTowers) {
+      if (!this.towerSprites.has(key)) {
+        this.createTowerSprite(tower, key);
+      }
+    }
+    for (const key of this.towerSprites.keys()) {
+      if (!stateTowers.has(key)) {
+        this.towerSprites.get(key)?.destroy();
+        this.towerSprites.delete(key);
+      }
+    }
+  }
+
   private subscribeTowers(): void {
     if (!this.room) return;
     const towers = this.room.state.towers as unknown as {
@@ -227,30 +261,12 @@ export class GameScene extends Phaser.Scene {
     };
 
     towers.onAdd((tower, key) => {
-      const lane = this.lanes[tower.laneIndex];
-      if (!lane) return;
-      const x =
-        lane.spawnX +
-        ((tower.slotIndex + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE) * lane.laneLength;
-      const y = lane.y - 28;
-
-      const def = getTower(tower.towerType);
-      const color = def?.color ?? 0x8b5cf6;
-
-      const base = this.add.rectangle(0, 0, 28, 28, color);
-      base.setStrokeStyle(2, 0x000000, 0.5);
-      const top = this.add.triangle(0, -10, 0, -8, -8, 8, 8, 8, 0xffffff, 0.85);
-
-      const container = this.add.container(x, y, [base, top]);
-      this.towerSprites.set(key, container);
-
-      this.refreshSlotInteractivity();
+      if (!this.towerSprites.has(key)) this.createTowerSprite(tower, key);
     });
 
     towers.onRemove((_tower, key) => {
       this.towerSprites.get(key)?.destroy();
       this.towerSprites.delete(key);
-      this.refreshSlotInteractivity();
     });
   }
 }

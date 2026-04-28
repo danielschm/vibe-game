@@ -4,6 +4,7 @@ import {
   getEnemy,
   type GameState,
   type LevelDefinition,
+  type Player,
   type WaveSpawnGroup,
 } from "@vibe-game/shared";
 
@@ -63,6 +64,14 @@ export class WaveSpawner {
     this.active = [];
   }
 
+  private getOccupiedLanes(state: GameState): number[] {
+    const occupied = new Set<number>();
+    for (const p of state.players.values() as IterableIterator<Player>) {
+      if (p.laneIndex >= 0) occupied.add(p.laneIndex);
+    }
+    return occupied.size > 0 ? Array.from(occupied) : this.allLanes();
+  }
+
   private spawnEnemyForGroup(state: GameState, group: WaveSpawnGroup): void {
     const def = getEnemy(group.enemy);
     if (!def) {
@@ -72,7 +81,7 @@ export class WaveSpawner {
 
     const lanes =
       group.laneIndex === undefined || group.laneIndex < 0
-        ? this.allLanes()
+        ? this.getOccupiedLanes(state)
         : [group.laneIndex];
 
     for (const lane of lanes) {
