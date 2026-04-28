@@ -1,16 +1,76 @@
-import { useEffect, useRef } from "react";
-import { createGame } from "@vibe-game/client";
+import { useEffect, useState } from "react";
+import type { Room } from "colyseus.js";
+import type { GameState } from "@vibe-game/shared";
+import { createLobby, joinLobby } from "./network/colyseus";
+import { MainMenu } from "./screens/MainMenu";
+import { Lobby } from "./screens/Lobby";
+import { Game } from "./screens/Game";
+
+type View = "menu" | "lobby" | "game";
 
 export function App() {
-  const gameContainerRef = useRef<HTMLDivElement | null>(null);
+  const [view, setView] = useState<View>("menu");
+  const [room, setRoom] = useState<Room<GameState> | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
 
+  // Phase-Wechsel im State (lobby → playing) verfolgen
   useEffect(() => {
-    if (!gameContainerRef.current) return;
-    const game = createGame(gameContainerRef.current);
-    return () => {
-      game.destroy(true);
+    if (!room) return;
+    const handler = () => {
+      if (room.state.phase === "playing" && view === "lobby") {
+        setView("game");
+      } else if (room.state.phase === "lobby" && view === "game") {
+        setView("lobby");
+      }
     };
-  }, []);
+    room.onStateChange(handler);
+    return () => {
+      // listeners werden beim leave aufgeräumt
+    };
+  }, [room, view]);
+
+  async function handleCreate(playerName: string) {
+    setErrorMessage(undefined);
+    try {
+      const newRoom = await createLobby(playerName);
+      attachRoomLifecycle(newRoom);
+      setRoom(newRoom);
+      setView("lobby");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Unbekannter Fehler");
+    }
+  }
+
+  async function handleJoin(playerName: string, joinCode: string) {
+    setErrorMessage(undefined);
+    try {
+      const newRoom = await joinLobby(joinCode, playerName);
+      attachRoomLifecycle(newRoom);
+      setRoom(newRoom);
+      setView("lobby");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Unbekannter Fehler");
+    }
+  }
+
+  function attachRoomLifecycle(r: Room<GameState>) {
+    r.onLeave(() => {
+      setRoom(null);
+      setView("menu");
+    });
+    r.onError((code, message) => {
+      console.error("[room.onError]", code, message);
+      setErrorMessage(message ?? `Fehler ${code}`);
+    });
+  }
+
+  function handleLeave() {
+    if (room) {
+      room.leave();
+    } else {
+      setView("menu");
+    }
+  }
 
   return (
     <div className="app">
@@ -18,11 +78,14 @@ export function App() {
         <h1>🏰 vibe-game</h1>
         <p className="tagline">Koop Tower Defense für 3 Spieler</p>
       </header>
-      <main className="game-shell">
-        <div ref={gameContainerRef} className="game-canvas" />
-        <aside className="hud-placeholder">
-          <p>HUD kommt in Schritt 9</p>
-        </aside>
+      <main className="app-main">
+        {view === "menu" && (
+          <MainMenu onCreate={handleCreate} onJoin={handleJoin} errorMessage={errorMessage} />
+        )}
+        {view === "lobby" && room && (
+          <Lobby room={room} selfId={room.sessionId} onLeave={handleLeave} />
+        )}
+        {view === "game" && room && <Game room={room} onLeave={handleLeave} />}
       </main>
     </div>
   );
