@@ -2,7 +2,7 @@
  * Colyseus-State-Schema.
  *
  * Wird vom Server authoritativ gepflegt und automatisch zu allen Clients synchronisiert.
- * Felder, die nicht per `@type` markiert sind, werden NICHT synchronisiert.
+ * Verwendet Legacy-Decorators von @colyseus/schema 2.x mit experimentalDecorators.
  */
 
 import { Schema, MapSchema, type } from "@colyseus/schema";
@@ -27,7 +27,7 @@ export class Tower extends Schema {
   @type("number") laneIndex = 0;
   @type("number") slotIndex = 0;
   @type("number") level = 1;
-  /** Server-only: Sekunden seit letztem Schuss. Nicht in @type, weil nicht gesynced. */
+  /** Server-only — nicht synchronisiert. */
   cooldownTimer = 0;
 }
 
@@ -55,6 +55,6 @@ export class GameState extends Schema {
   @type("number") baseHp = 100;
   @type("number") baseHpMax = 100;
 
-  /** Sekunden bis zur nächsten Welle (Lobby-/Pause-Anzeige). */
+  /** Sekunden bis zur nächsten Welle. */
   @type("number") nextWaveIn = 0;
 }
