@@ -12,11 +12,60 @@ import {
 } from "@vibe-game/shared";
 import { GAME_VIEWPORT } from "../game";
 
+interface Vec2 { x: number; y: number }
+
 interface LaneLayout {
   spawnX: number;
   baseX: number;
   laneLength: number;
   y: number;
+  waypoints: Vec2[];
+  segLengths: number[];
+  pathLength: number;
+}
+
+// Winding waypoints for 960×540. Each lane stays in its own horizontal band.
+const LANE_WAYPOINTS: Vec2[][] = [
+  // Lane 0 — top band (y 65–160)
+  [{x:55,y:120},{x:150,y:68},{x:255,y:155},{x:385,y:72},{x:510,y:152},{x:640,y:75},{x:760,y:148},{x:885,y:110}],
+  // Lane 1 — middle band (y 205–315)
+  [{x:55,y:265},{x:180,y:310},{x:310,y:208},{x:450,y:305},{x:580,y:215},{x:710,y:300},{x:835,y:248},{x:885,y:265}],
+  // Lane 2 — bottom band (y 355–470)
+  [{x:55,y:415},{x:175,y:468},{x:305,y:365},{x:440,y:462},{x:570,y:362},{x:700,y:455},{x:830,y:388},{x:885,y:415}],
+];
+
+function buildSegLengths(pts: Vec2[]): number[] {
+  const lens: number[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const dx = pts[i + 1].x - pts[i].x;
+    const dy = pts[i + 1].y - pts[i].y;
+    lens.push(Math.sqrt(dx * dx + dy * dy));
+  }
+  return lens;
+}
+
+function samplePath(layout: LaneLayout, progress: number): Vec2 {
+  const { waypoints: pts, segLengths, pathLength } = layout;
+  if (progress <= 0) return pts[0];
+  if (progress >= 1) return pts[pts.length - 1];
+  let target = progress * pathLength;
+  for (let i = 0; i < segLengths.length; i++) {
+    if (target <= segLengths[i]) {
+      const t = target / segLengths[i];
+      return {
+        x: pts[i].x + t * (pts[i + 1].x - pts[i].x),
+        y: pts[i].y + t * (pts[i + 1].y - pts[i].y),
+      };
+    }
+    target -= segLengths[i];
+  }
+  return pts[pts.length - 1];
+}
+
+function slotXY(layout: LaneLayout, slotIndex: number): Vec2 {
+  const progress = (slotIndex + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE;
+  const pt = samplePath(layout, progress);
+  return { x: pt.x, y: pt.y - 28 };
 }
 
 interface SlotZone {
@@ -88,8 +137,8 @@ export class GameScene extends Phaser.Scene {
       if (!view) continue;
       const lane = this.lanes[enemy.laneIndex];
       if (!lane) continue;
-      const x = lane.spawnX + enemy.progress * lane.laneLength;
-      view.container.setPosition(x, lane.y);
+      const { x, y } = samplePath(lane, enemy.progress);
+      view.container.setPosition(x, y);
       const hpRatio = enemy.hpMax > 0 ? enemy.hp / enemy.hpMax : 0;
       view.hpFill.scaleX = Math.max(0, hpRatio);
       view.hpFill.fillColor = hpColor(hpRatio);
@@ -97,19 +146,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private computeLaneLayout(): LaneLayout[] {
-    const margin = 60;
-    const baseMargin = 80;
-    const top = 80;
-    const usableHeight = GAME_VIEWPORT.height - top - 60;
-    const laneCount = GAME_CONSTANTS.LANE_COUNT;
-    const layouts: LaneLayout[] = [];
-    for (let i = 0; i < laneCount; i++) {
-      const y = top + (usableHeight / laneCount) * (i + 0.5);
-      const spawnX = margin;
-      const baseX = GAME_VIEWPORT.width - baseMargin;
-      layouts.push({ spawnX, baseX, laneLength: baseX - spawnX, y });
-    }
-    return layouts;
+    return LANE_WAYPOINTS.map((waypoints) => {
+      const segLengths = buildSegLengths(waypoints);
+      const pathLength = segLengths.reduce((s, l) => s + l, 0);
+      const first = waypoints[0];
+      const last = waypoints[waypoints.length - 1];
+      return {
+        spawnX: first.x,
+        baseX: last.x,
+        laneLength: GAME_CONSTANTS.LANE_LENGTH,
+        y: first.y,
+        waypoints,
+        segLengths,
+        pathLength,
+      };
+    });
   }
 
   private drawBackground(): void {
@@ -121,34 +172,40 @@ export class GameScene extends Phaser.Scene {
   private drawLanes(): void {
     const trackColor = 0x3d3d6b;
     const baseColor = 0x9bbcff;
+    const g = this.add.graphics();
 
     for (let i = 0; i < this.lanes.length; i++) {
       const lane = this.lanes[i];
-      this.add
-        .rectangle(
-          lane.spawnX + lane.laneLength / 2,
-          lane.y,
-          lane.laneLength,
-          14,
-          trackColor,
-        )
-        .setOrigin(0.5);
 
+      // Pfad als breite Polylinie
+      g.lineStyle(12, trackColor, 1);
+      g.beginPath();
+      g.moveTo(lane.waypoints[0].x, lane.waypoints[0].y);
+      for (let k = 1; k < lane.waypoints.length; k++) {
+        g.lineTo(lane.waypoints[k].x, lane.waypoints[k].y);
+      }
+      g.strokePath();
+
+      // Lane-Nummer am Start
       this.add
-        .text(lane.spawnX - 20, lane.y, `${i + 1}`, {
-          fontSize: "20px",
+        .text(lane.waypoints[0].x - 18, lane.waypoints[0].y, `${i + 1}`, {
+          fontSize: "18px",
           color: "#9bbcff",
           fontStyle: "bold",
         })
         .setOrigin(1, 0.5);
 
-      this.add.rectangle(lane.baseX + 20, lane.y, 22, 30, baseColor).setOrigin(0.5);
+      // Basis-Block am Ende
+      const end = lane.waypoints[lane.waypoints.length - 1];
+      this.add.rectangle(end.x + 20, end.y, 22, 30, baseColor).setOrigin(0.5);
     }
 
-    const baseCenterY = (this.lanes[0].y + this.lanes[this.lanes.length - 1].y) / 2;
-    const baseHeight = this.lanes[this.lanes.length - 1].y - this.lanes[0].y + 60;
+    // Verbindungsbalken der Basis-Blöcke
+    const endPts = this.lanes.map((l) => l.waypoints[l.waypoints.length - 1]);
+    const minY = Math.min(...endPts.map((p) => p.y));
+    const maxY = Math.max(...endPts.map((p) => p.y));
     this.add
-      .rectangle(this.lanes[0].baseX + 30, baseCenterY, 6, baseHeight, baseColor, 0.3)
+      .rectangle(endPts[0].x + 30, (minY + maxY) / 2, 6, maxY - minY + 60, baseColor, 0.3)
       .setOrigin(0.5);
   }
 
@@ -156,15 +213,10 @@ export class GameScene extends Phaser.Scene {
     for (let l = 0; l < this.lanes.length; l++) {
       const lane = this.lanes[l];
       for (let s = 0; s < GAME_CONSTANTS.TOWER_SLOTS_PER_LANE; s++) {
-        const x =
-          lane.spawnX +
-          ((s + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE) * lane.laneLength;
-        const y = lane.y - 28;
-
+        const { x, y } = slotXY(lane, s);
         const rect = this.add
           .rectangle(x, y, 36, 36, 0x9bbcff, 0)
           .setStrokeStyle(1, 0x9bbcff, 0.25);
-
         rect.on("pointerdown", () => this.onSlotClick(l, s));
         this.slotZones.push({ laneIndex: l, slotIndex: s, rect, x, y });
       }
@@ -244,10 +296,7 @@ export class GameScene extends Phaser.Scene {
   private createTowerSprite(tower: Tower, key: string): void {
     const lane = this.lanes[tower.laneIndex];
     if (!lane) return;
-    const x =
-      lane.spawnX +
-      ((tower.slotIndex + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE) * lane.laneLength;
-    const y = lane.y - 28;
+    const { x, y } = slotXY(lane, tower.slotIndex);
     const def = getTower(tower.towerType);
     const color = def?.color ?? 0x8b5cf6;
     const base = this.add.rectangle(0, 0, 28, 28, color);
