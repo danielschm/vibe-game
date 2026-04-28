@@ -4,10 +4,22 @@
 // nur nach kurzer Team-Absprache.
 
 export * from "./constants";
+export * from "./elements";
 export * from "./messages";
 export * from "./schema";
 
-export { TOWERS, getTower, listTowers, isTowerId, type TowerId, type TowerDefinition } from "./towers";
+export {
+  TOWERS,
+  getTower,
+  listTowers,
+  isTowerId,
+  getEffectiveTowerStats,
+  type TowerId,
+  type TowerDefinition,
+  type TowerEffect,
+  type TowerUpgradeLevel,
+  type EffectiveTowerStats,
+} from "./towers";
 export { ENEMIES, getEnemy, listEnemies, isEnemyId, type EnemyId, type EnemyDefinition } from "./enemies";
 export {
   LEVELS,

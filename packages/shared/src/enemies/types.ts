@@ -1,3 +1,5 @@
+import type { TowerElement } from "../elements";
+
 /**
  * Definition eines Gegner-Typs.
  * Person B erweitert das Spiel über das gleiche Muster wie bei Towern.
@@ -19,4 +21,10 @@ export interface EnemyDefinition {
   color: number;
   /** Optionaler Asset-Schlüssel. */
   sprite?: string;
+  /**
+   * Element-Resistenzen: Wert < 1 = schwächer gegen dieses Element, > 1 = resistenter.
+   * Fehlt ein Element, wird 1.0 (kein Modifikator) angenommen.
+   * Person B befüllt diese Werte pro Gegner-Typ.
+   */
+  elementResistance?: Partial<Record<TowerElement, number>>;
 }

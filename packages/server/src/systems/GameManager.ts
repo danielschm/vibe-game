@@ -31,6 +31,7 @@ export class GameManager {
     this.state.wave = 0;
     this.state.baseHp = this.state.baseHpMax;
     this.state.nextWaveIn = GAME_CONSTANTS.WAVE_BREAK_SECONDS;
+    this.state.enemiesKilled = 0;
     this.state.enemies.clear();
     this.state.towers.clear();
 
@@ -49,6 +50,7 @@ export class GameManager {
     this.state.wave = 0;
     this.state.baseHp = this.state.baseHpMax;
     this.state.nextWaveIn = 0;
+    this.state.enemiesKilled = 0;
     this.state.enemies.clear();
     this.state.towers.clear();
     this.waveSpawner.reset();

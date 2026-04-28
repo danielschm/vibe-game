@@ -9,7 +9,7 @@ import {
   getTower,
   isLevelId,
 } from "@vibe-game/shared";
-import type { BuyTowerMessage } from "@vibe-game/shared";
+import type { BuyTowerMessage, UpgradeTowerMessage } from "@vibe-game/shared";
 import { GameManager } from "../systems/GameManager";
 
 interface JoinOptions {
@@ -92,6 +92,10 @@ export class GameRoom extends Room<GameState> {
     this.onMessage(MessageType.BUY_TOWER, (client, payload: BuyTowerMessage) => {
       this.tryBuyTower(client.sessionId, payload);
     });
+
+    this.onMessage(MessageType.UPGRADE_TOWER, (client, payload: UpgradeTowerMessage) => {
+      this.tryUpgradeTower(client.sessionId, payload);
+    });
   }
 
   private tryBuyTower(sessionId: string, payload: BuyTowerMessage): void {
@@ -104,6 +108,8 @@ export class GameRoom extends Room<GameState> {
 
     const def = getTower(payload.towerType);
     if (!def) return;
+
+    if ((def.unlockAfterKills ?? 0) > this.state.enemiesKilled) return;
 
     if (
       payload.slotIndex < 0 ||
@@ -135,6 +141,34 @@ export class GameRoom extends Room<GameState> {
     console.log(
       `[GameRoom ${this.state.joinCode}] ${player.name} bought ${def.name} ` +
         `on lane ${payload.laneIndex} slot ${payload.slotIndex}`,
+    );
+  }
+
+  private tryUpgradeTower(sessionId: string, payload: UpgradeTowerMessage): void {
+    if (this.state.phase !== "playing") return;
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+
+    const tower = this.state.towers.get(payload.towerId);
+    if (!tower) return;
+    if (tower.ownerId !== sessionId) return;
+
+    const def = getTower(tower.towerType);
+    if (!def?.upgrades) return;
+
+    const upgradeIndex = tower.level - 1; // upgrades[0] = Level 2, upgrades[1] = Level 3, …
+    if (upgradeIndex >= def.upgrades.length) return;
+
+    const upgrade = def.upgrades[upgradeIndex];
+    if ((upgrade.unlockAfterKills ?? 0) > this.state.enemiesKilled) return;
+    if (player.gold < upgrade.cost) return;
+
+    player.gold -= upgrade.cost;
+    tower.level += 1;
+
+    console.log(
+      `[GameRoom ${this.state.joinCode}] ${player.name} upgraded ${def.name} ` +
+        `to level ${tower.level} (${upgrade.label})`,
     );
   }
 

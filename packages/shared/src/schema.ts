@@ -39,6 +39,14 @@ export class Enemy extends Schema {
   @type("number") progress = 0;
   @type("number") hp = 0;
   @type("number") hpMax = 0;
+
+  // Server-only — nicht synchronisiert
+  speedMultiplier = 1.0;
+  slowTimer = 0;
+  burnDps = 0;
+  burnTimer = 0;
+  burnOwnerId = "";
+  freezeTimer = 0;
 }
 
 export class GameState extends Schema {
@@ -57,4 +65,7 @@ export class GameState extends Schema {
 
   /** Sekunden bis zur nächsten Welle. */
   @type("number") nextWaveIn = 0;
+
+  /** Gesamtzahl getöteter Gegner im laufenden Spiel — steuert Tower-/Upgrade-Freischaltungen. */
+  @type("number") enemiesKilled = 0;
 }

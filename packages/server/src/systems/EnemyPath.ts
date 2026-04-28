@@ -15,7 +15,7 @@ export function updateEnemyPath(state: GameState, dt: number): void {
       reachedBase.push(id);
       continue;
     }
-    enemy.progress += (def.speed * dt) / GAME_CONSTANTS.LANE_LENGTH;
+    enemy.progress += (def.speed * enemy.speedMultiplier * dt) / GAME_CONSTANTS.LANE_LENGTH;
 
     if (enemy.progress >= 1.0) {
       state.baseHp = Math.max(0, state.baseHp - def.damage);

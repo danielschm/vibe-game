@@ -5,6 +5,7 @@
 
 export const MessageType = {
   BUY_TOWER: "BUY_TOWER",
+  UPGRADE_TOWER: "UPGRADE_TOWER",
   READY: "READY",
   START_GAME: "START_GAME",
   RESTART: "RESTART",
@@ -16,6 +17,10 @@ export interface BuyTowerMessage {
   laneIndex: number;
   slotIndex: number;
   towerType: string;
+}
+
+export interface UpgradeTowerMessage {
+  towerId: string;
 }
 
 export interface ReadyMessage {
@@ -35,6 +40,7 @@ export interface RestartMessage {
 /** Mapping von MessageType-Konstante auf Payload-Typ. */
 export interface MessagePayloads {
   BUY_TOWER: BuyTowerMessage;
+  UPGRADE_TOWER: UpgradeTowerMessage;
   READY: ReadyMessage;
   START_GAME: StartGameMessage;
   RESTART: RestartMessage;
