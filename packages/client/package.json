@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@vibe-game/shared": "workspace:*",
-    "colyseus.js": "^0.16.0",
+    "colyseus.js": "^0.15.0",
     "phaser": "^3.85.2"
   },
   "devDependencies": {
