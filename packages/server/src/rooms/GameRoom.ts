@@ -7,12 +7,15 @@ import {
   Player,
   isLevelId,
 } from "@vibe-game/shared";
+import { GameManager } from "../systems/GameManager";
 
 interface JoinOptions {
   playerName?: string;
 }
 
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // I, O, 0, 1 ausgespart
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // ohne ähnlich aussehende
+const TICK_INTERVAL_MS = Math.round(1000 / GAME_CONSTANTS.TICK_RATE_HZ);
+const PATCH_INTERVAL_MS = Math.round(1000 / GAME_CONSTANTS.STATE_SYNC_HZ);
 
 function randomCode(length: number): string {
   let code = "";
@@ -24,6 +27,7 @@ function randomCode(length: number): string {
 
 export class GameRoom extends Room<GameState> {
   override maxClients = LOBBY.MAX_PLAYERS;
+  private manager!: GameManager;
 
   override async onCreate(options: { levelId?: string }): Promise<void> {
     this.setState(new GameState());
@@ -36,9 +40,19 @@ export class GameRoom extends Room<GameState> {
     this.state.joinCode = code;
     this.setMetadata({ joinCode: code });
 
+    this.manager = new GameManager(this.state);
+
     console.log(`[GameRoom] created room ${this.roomId} with code ${code}`);
 
+    this.setPatchRate(PATCH_INTERVAL_MS);
+    this.setSimulationInterval((deltaMs) => this.onTick(deltaMs), TICK_INTERVAL_MS);
+
     this.registerMessages();
+  }
+
+  private onTick(deltaMs: number): void {
+    const dt = deltaMs / 1000;
+    this.manager.tick(dt);
   }
 
   private registerMessages(): void {
@@ -59,12 +73,16 @@ export class GameRoom extends Room<GameState> {
       if (!allReady) return;
 
       this.state.phase = "playing";
+      this.manager.startGame();
       console.log(`[GameRoom ${this.state.joinCode}] starting game`);
-      // Game-Loop wird in Schritt 5 eingehängt.
     });
 
-    this.onMessage(MessageType.RESTART, () => {
-      // kommt in Schritt 10 (Game-Over → zurück zur Lobby)
+    this.onMessage(MessageType.RESTART, (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player?.isHost) return;
+      if (this.state.phase !== "won" && this.state.phase !== "lost") return;
+      this.manager.resetToLobby();
+      console.log(`[GameRoom ${this.state.joinCode}] reset to lobby`);
     });
   }
 
@@ -96,7 +114,6 @@ export class GameRoom extends Room<GameState> {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
 
-    // Während des Spiels nur disconnected markieren — Reconnect später möglich
     if (this.state.phase !== "lobby") {
       player.connected = false;
       console.log(`[GameRoom ${this.state.joinCode}] ${player.name} disconnected`);
