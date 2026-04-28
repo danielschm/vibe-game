@@ -9,8 +9,8 @@ export const GAME_CONSTANTS = {
   TOWER_SLOTS_PER_LANE: 8,
   /** Maximale gemeinsame Basis-HP. */
   BASE_HP_MAX: 100,
-  /** Start-Gold pro Spieler. */
-  STARTING_GOLD: 100,
+  /** Start-Gold pro Spieler — reicht für 3 Bogenschützen zum Start. */
+  STARTING_GOLD: 150,
   /** Wellen, die geschafft werden müssen, um zu gewinnen (MVP-Scope). */
   WAVES_TO_WIN: 3,
   /** Server-Logik-Tick pro Sekunde. */
