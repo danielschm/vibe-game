@@ -1,14 +1,28 @@
-import { GAME_CONSTANTS, getLevel, type GameState } from "@vibe-game/shared";
+import {
+  GAME_CONSTANTS,
+  getLevel,
+  type GameState,
+  type LevelDefinition,
+} from "@vibe-game/shared";
+import { WaveSpawner } from "./WaveSpawner";
+import { updateEnemyPath } from "./EnemyPath";
 
 /**
  * Authoritative Spiel-Logik im Server-Tick.
  *
- * Verantwortlich für:
- *  - Phase-Übergänge (lobby → playing → won/lost)
- *  - Wellen-Countdown und Wellen-Wechsel (Spawn-Logik kommt in Schritt 6)
- *  - Sieg/Niederlage-Bedingungen
+ * Phasen:
+ *  - lobby      → kein Tick aktiv
+ *  - playing    → Tick durchläuft Wave-Pause oder aktive Welle
+ *  - won / lost → Tick ist no-op, RESTART führt zurück nach lobby
+ *
+ * In "playing":
+ *  - state.nextWaveIn > 0  → Pause-Countdown vor nächster Welle
+ *  - state.nextWaveIn = 0  → Welle aktiv (Spawner spawnt, Enemies laufen)
  */
 export class GameManager {
+  private waveSpawner = new WaveSpawner();
+  private level: LevelDefinition | undefined;
+
   constructor(private state: GameState) {}
 
   /** Wird vom GameRoom aufgerufen, wenn die Phase auf "playing" wechselt. */
@@ -16,13 +30,12 @@ export class GameManager {
     this.state.wave = 0;
     this.state.baseHp = this.state.baseHpMax;
     this.state.nextWaveIn = GAME_CONSTANTS.WAVE_BREAK_SECONDS;
-
-    const level = getLevel(this.state.levelId);
-    this.state.wavesTotal = level?.waves.length ?? GAME_CONSTANTS.WAVES_TO_WIN;
-
-    // Bestehende Spawns/Türme aufräumen, falls Restart
     this.state.enemies.clear();
     this.state.towers.clear();
+
+    this.level = getLevel(this.state.levelId);
+    this.state.wavesTotal = this.level?.waves.length ?? GAME_CONSTANTS.WAVES_TO_WIN;
+    this.waveSpawner.reset();
 
     console.log(
       `[GameManager] start — level=${this.state.levelId} wavesTotal=${this.state.wavesTotal}`,
@@ -37,6 +50,7 @@ export class GameManager {
     this.state.nextWaveIn = 0;
     this.state.enemies.clear();
     this.state.towers.clear();
+    this.waveSpawner.reset();
     for (const player of this.state.players.values()) {
       player.ready = false;
       player.gold = GAME_CONSTANTS.STARTING_GOLD;
@@ -47,30 +61,52 @@ export class GameManager {
   tick(dt: number): void {
     if (this.state.phase !== "playing") return;
 
-    // Niederlage zuerst prüfen, damit Wave-Logik nicht weiterläuft
     if (this.state.baseHp <= 0) {
       this.state.phase = "lost";
+      this.waveSpawner.reset();
+      this.state.enemies.clear();
       console.log(`[GameManager] base destroyed — phase=lost`);
       return;
     }
 
-    // Wellen-Pause / -Wechsel
     if (this.state.nextWaveIn > 0) {
+      // Pause-Phase
       this.state.nextWaveIn = Math.max(0, this.state.nextWaveIn - dt);
       if (this.state.nextWaveIn === 0) {
-        this.advanceWave();
+        this.beginNextWave();
       }
+      return;
+    }
+
+    // Aktive Welle
+    this.waveSpawner.tick(dt, this.state);
+    updateEnemyPath(this.state, dt);
+
+    if (this.waveSpawner.isFinished(this.state)) {
+      this.onWaveCleared();
     }
   }
 
-  private advanceWave(): void {
+  private beginNextWave(): void {
     this.state.wave += 1;
-    if (this.state.wave > this.state.wavesTotal) {
+    if (!this.level || this.state.wave > this.state.wavesTotal) {
+      // Sollte normal nicht passieren — onWaveCleared kümmert sich um won.
+      this.state.phase = "won";
+      return;
+    }
+    console.log(`[GameManager] starting wave ${this.state.wave}/${this.state.wavesTotal}`);
+    this.waveSpawner.startWave(this.level, this.state.wave);
+  }
+
+  private onWaveCleared(): void {
+    if (this.state.wave >= this.state.wavesTotal) {
       this.state.phase = "won";
       console.log(`[GameManager] all waves cleared — phase=won`);
       return;
     }
-    console.log(`[GameManager] starting wave ${this.state.wave}/${this.state.wavesTotal}`);
-    // Spawn-Logik kommt in Schritt 6 (WaveSpawner).
+    this.state.nextWaveIn = GAME_CONSTANTS.WAVE_BREAK_SECONDS;
+    console.log(
+      `[GameManager] wave ${this.state.wave} cleared — break ${GAME_CONSTANTS.WAVE_BREAK_SECONDS}s`,
+    );
   }
 }
