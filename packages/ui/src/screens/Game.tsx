@@ -3,6 +3,7 @@ import type { Room } from "colyseus.js";
 import { createGame } from "@vibe-game/client";
 import type { GameState } from "@vibe-game/shared";
 import { Hud } from "./Hud";
+import { EndScreen } from "./EndScreen";
 
 interface GameScreenProps {
   room: Room<GameState>;
@@ -26,6 +27,7 @@ export function Game({ room, onLeave }: GameScreenProps) {
         <div ref={containerRef} className="game-canvas" />
         <Hud room={room} onLeave={onLeave} />
       </div>
+      <EndScreen room={room} />
     </div>
   );
 }
