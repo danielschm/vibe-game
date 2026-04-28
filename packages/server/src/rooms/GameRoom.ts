@@ -5,8 +5,11 @@ import {
   LOBBY,
   MessageType,
   Player,
+  Tower,
+  getTower,
   isLevelId,
 } from "@vibe-game/shared";
+import type { BuyTowerMessage } from "@vibe-game/shared";
 import { GameManager } from "../systems/GameManager";
 
 interface JoinOptions {
@@ -28,6 +31,7 @@ function randomCode(length: number): string {
 export class GameRoom extends Room<GameState> {
   override maxClients = LOBBY.MAX_PLAYERS;
   private manager!: GameManager;
+  private towerIdCounter = 0;
 
   override async onCreate(options: { levelId?: string }): Promise<void> {
     this.setState(new GameState());
@@ -84,6 +88,54 @@ export class GameRoom extends Room<GameState> {
       this.manager.resetToLobby();
       console.log(`[GameRoom ${this.state.joinCode}] reset to lobby`);
     });
+
+    this.onMessage(MessageType.BUY_TOWER, (client, payload: BuyTowerMessage) => {
+      this.tryBuyTower(client.sessionId, payload);
+    });
+  }
+
+  private tryBuyTower(sessionId: string, payload: BuyTowerMessage): void {
+    if (this.state.phase !== "playing") return;
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    if (!payload || typeof payload.laneIndex !== "number") return;
+
+    if (payload.laneIndex !== player.laneIndex) return; // nur die eigene Lane
+
+    const def = getTower(payload.towerType);
+    if (!def) return;
+
+    if (
+      payload.slotIndex < 0 ||
+      payload.slotIndex >= GAME_CONSTANTS.TOWER_SLOTS_PER_LANE
+    ) {
+      return;
+    }
+
+    for (const t of this.state.towers.values()) {
+      if (t.laneIndex === payload.laneIndex && t.slotIndex === payload.slotIndex) {
+        return; // Slot belegt
+      }
+    }
+
+    if (player.gold < def.cost) return;
+
+    player.gold -= def.cost;
+
+    const tower = new Tower();
+    tower.id = `t_${++this.towerIdCounter}`;
+    tower.towerType = def.id;
+    tower.ownerId = sessionId;
+    tower.laneIndex = payload.laneIndex;
+    tower.slotIndex = payload.slotIndex;
+    tower.level = 1;
+    tower.cooldownTimer = 0;
+    this.state.towers.set(tower.id, tower);
+
+    console.log(
+      `[GameRoom ${this.state.joinCode}] ${player.name} bought ${def.name} ` +
+        `on lane ${payload.laneIndex} slot ${payload.slotIndex}`,
+    );
   }
 
   override onJoin(client: Client, options: JoinOptions): void {

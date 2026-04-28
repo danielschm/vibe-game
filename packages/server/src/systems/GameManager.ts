@@ -6,6 +6,7 @@ import {
 } from "@vibe-game/shared";
 import { WaveSpawner } from "./WaveSpawner";
 import { updateEnemyPath } from "./EnemyPath";
+import { updateTowerCombat } from "./TowerCombat";
 
 /**
  * Authoritative Spiel-Logik im Server-Tick.
@@ -80,6 +81,7 @@ export class GameManager {
 
     // Aktive Welle
     this.waveSpawner.tick(dt, this.state);
+    updateTowerCombat(this.state, dt);
     updateEnemyPath(this.state, dt);
 
     if (this.waveSpawner.isFinished(this.state)) {
