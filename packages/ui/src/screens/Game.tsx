@@ -13,11 +13,11 @@ export function Game({ room, onLeave }: GameScreenProps) {
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const phaser = createGame(containerRef.current);
+    const phaser = createGame(containerRef.current, { room });
     return () => {
       phaser.destroy(true);
     };
-  }, []);
+  }, [room]);
 
   return (
     <div className="screen game-screen">
