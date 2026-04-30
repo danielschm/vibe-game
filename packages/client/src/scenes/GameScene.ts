@@ -65,19 +65,48 @@ function samplePath(layout: LaneLayout, progress: number): Vec2 {
   return pts[pts.length - 1];
 }
 
-function slotXY(layout: LaneLayout, slotIndex: number): Vec2 {
-  const progress = (slotIndex + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE;
-  const pt = samplePath(layout, progress);
-  return { x: pt.x, y: pt.y - 28 };
+// ─── Placement-Konstanten ────────────────────────────────────────────────────
+
+const TOWER_RADIUS = GAME_CONSTANTS.TOWER_RADIUS;
+// Mindestabstand vom Pfad-Mittelpunkt (halbe Strichbreite 6 + Turm-Radius + Puffer)
+const PATH_CLEARANCE = 6 + TOWER_RADIUS + 4;
+
+// Y-Grenzen der Lane-Bänder (basierend auf Waypoint-Bereichen + Puffer)
+const LANE_Y_BOUNDS = [
+  { min: 40, max: 181 },   // Lane 0
+  { min: 181, max: 336 },  // Lane 1
+  { min: 336, max: 490 },  // Lane 2
+] as const;
+const LANE_X_MIN = 60;
+const LANE_X_MAX = 880;
+
+function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax; const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.sqrt((px - ax) ** 2 + (py - ay) ** 2);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return Math.sqrt((px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2);
 }
 
-interface SlotZone {
-  laneIndex: number;
-  slotIndex: number;
-  rect: Phaser.GameObjects.Rectangle;
-  x: number;
-  y: number;
+function nearestPathInfo(layout: LaneLayout, px: number, py: number): { progress: number; dist: number } {
+  let bestProgress = 0;
+  let bestDist = Infinity;
+  let accumulated = 0;
+  const { waypoints, segLengths, pathLength } = layout;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const ax = waypoints[i].x; const ay = waypoints[i].y;
+    const bx = waypoints[i + 1].x; const by = waypoints[i + 1].y;
+    const segLen = segLengths[i];
+    const dx = bx - ax; const dy = by - ay;
+    const t = lenSq(dx, dy) === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq(dx, dy)));
+    const dist = Math.sqrt((px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2);
+    if (dist < bestDist) { bestDist = dist; bestProgress = (accumulated + t * segLen) / pathLength; }
+    accumulated += segLen;
+  }
+  return { progress: Math.max(0, Math.min(1, bestProgress)), dist: bestDist };
 }
+
+function lenSq(dx: number, dy: number): number { return dx * dx + dy * dy; }
 
 interface EnemyView {
   container: Phaser.GameObjects.Container;
@@ -97,13 +126,14 @@ function hpColor(ratio: number): number {
 export class GameScene extends Phaser.Scene {
   private room: Room<GameState> | null = null;
   private lanes: LaneLayout[] = [];
-  private slotZones: SlotZone[] = [];
   private enemyViews = new Map<string, EnemyView>();
   private towerSprites = new Map<string, Phaser.GameObjects.Container>();
   private sceneAlive = false;
 
   private activeMenu: { container: Phaser.GameObjects.Container; towerId: string } | null = null;
   private menuClickConsumed = false;
+
+  private ghost: Phaser.GameObjects.Container | null = null;
 
   constructor() {
     super({ key: "Game" });
@@ -119,7 +149,6 @@ export class GameScene extends Phaser.Scene {
     this.lanes = this.computeLaneLayout();
     this.drawBackground();
     this.drawLanes();
-    this.drawSlotZones();
 
     if (!this.room) {
       this.add
@@ -133,19 +162,18 @@ export class GameScene extends Phaser.Scene {
 
     this.subscribeEnemies();
     this.subscribeTowers();
-    this.refreshSlotInteractivity();
 
     this.room.onStateChange(() => {
       if (!this.sceneAlive) return;
       this.syncTowerSprites();
-      this.refreshSlotInteractivity();
     });
 
     this.room.onMessage(MessageType.TOWER_FIRED, (data: TowerFiredEvent) => {
       if (this.sceneAlive) this.playShootAnim(data);
     });
 
-    this.input.on("pointerdown", this.onGlobalClick, this);
+    this.input.on("pointermove", this.onPointerMove, this);
+    this.input.on("pointerdown", this.onPointerDown, this);
   }
 
   override update(): void {
@@ -223,61 +251,115 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
   }
 
-  private drawSlotZones(): void {
-    for (let l = 0; l < this.lanes.length; l++) {
-      const lane = this.lanes[l];
-      for (let s = 0; s < GAME_CONSTANTS.TOWER_SLOTS_PER_LANE; s++) {
-        const { x, y } = slotXY(lane, s);
-        const rect = this.add
-          .rectangle(x, y, 36, 36, 0x9bbcff, 0)
-          .setStrokeStyle(1, 0x9bbcff, 0.25);
-        rect.on("pointerdown", () => this.onSlotClick(l, s));
-        this.slotZones.push({ laneIndex: l, slotIndex: s, rect, x, y });
-      }
-    }
-  }
-
-  private refreshSlotInteractivity(): void {
-    if (!this.room) return;
-    const myLane = this.getMyLane();
-    for (const zone of this.slotZones) {
-      const occupied = this.isSlotOccupied(zone.laneIndex, zone.slotIndex);
-      const buildable = zone.laneIndex === myLane && !occupied;
-      if (buildable) {
-        zone.rect.setInteractive({ useHandCursor: true });
-        zone.rect.setStrokeStyle(2, 0x9bbcff, 0.7);
-        zone.rect.setFillStyle(0x9bbcff, 0.08);
-      } else {
-        zone.rect.disableInteractive();
-        zone.rect.setStrokeStyle(1, 0x9bbcff, 0.15);
-        zone.rect.setFillStyle(0x9bbcff, 0);
-      }
-    }
-  }
-
-  private isSlotOccupied(lane: number, slot: number): boolean {
-    if (!this.room) return false;
-    for (const t of this.room.state.towers.values() as unknown as IterableIterator<Tower>) {
-      if (t.laneIndex === lane && t.slotIndex === slot) return true;
-    }
-    return false;
-  }
-
   private getMyLane(): number {
     if (!this.room) return -1;
     const me = this.room.state.players.get(this.room.sessionId);
     return me?.laneIndex ?? -1;
   }
 
-  private onSlotClick(laneIndex: number, slotIndex: number): void {
-    if (!this.room) return;
-    if (laneIndex !== this.getMyLane()) return;
-    this.menuClickConsumed = true;
+  // ─── Freie Platzierung ───────────────────────────────────────────────────────
+
+  private getLaneForPoint(x: number, y: number): number {
+    if (x < LANE_X_MIN || x > LANE_X_MAX) return -1;
+    for (let i = 0; i < LANE_Y_BOUNDS.length; i++) {
+      if (y >= LANE_Y_BOUNDS[i].min && y < LANE_Y_BOUNDS[i].max) return i;
+    }
+    return -1;
+  }
+
+  private isValidPlacement(x: number, y: number, laneIndex: number): boolean {
+    const lane = this.lanes[laneIndex];
+    if (!lane) return false;
+
+    // Mindestabstand zum Pfad
+    const { waypoints } = lane;
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const d = distToSegment(x, y, waypoints[i].x, waypoints[i].y, waypoints[i + 1].x, waypoints[i + 1].y);
+      if (d < PATH_CLEARANCE) return false;
+    }
+
+    // Kollision mit bestehenden Towers
+    if (this.room) {
+      for (const t of (this.room.state.towers as unknown as Map<string, Tower>).values()) {
+        const dx = t.px - x; const dy = t.py - y;
+        if (dx * dx + dy * dy < (TOWER_RADIUS * 2) ** 2) return false;
+      }
+    }
+
+    return true;
+  }
+
+  private onPointerMove(pointer: Phaser.Input.Pointer): void {
+    const selectedType = this.game.registry.get("selectedTowerType") as string | null;
+    if (!selectedType) { this.clearGhost(); return; }
+    const myLane = this.getMyLane();
+    const laneIndex = this.getLaneForPoint(pointer.x, pointer.y);
+    if (laneIndex !== myLane) { this.clearGhost(); return; }
+    const valid = this.isValidPlacement(pointer.x, pointer.y, laneIndex);
+    this.updateGhost(pointer.x, pointer.y, selectedType, valid);
+  }
+
+  private onPointerDown(pointer: Phaser.Input.Pointer): void {
+    if (this.menuClickConsumed) {
+      this.menuClickConsumed = false;
+      return;
+    }
+    this.closeTowerMenu();
+
+    const selectedType = this.game.registry.get("selectedTowerType") as string | null;
+    if (!selectedType || !this.room) return;
+
+    const myLane = this.getMyLane();
+    const laneIndex = this.getLaneForPoint(pointer.x, pointer.y);
+    if (laneIndex !== myLane) return;
+    if (!this.isValidPlacement(pointer.x, pointer.y, laneIndex)) return;
+
+    const lane = this.lanes[laneIndex];
+    const { progress } = nearestPathInfo(lane, pointer.x, pointer.y);
+
     this.room.send(MessageType.BUY_TOWER, {
       laneIndex,
-      slotIndex,
-      towerType: "archer",
+      px: Math.round(pointer.x),
+      py: Math.round(pointer.y),
+      laneProgress: progress,
+      towerType: selectedType,
     });
+
+    // Auswahl nach dem Setzen aufheben
+    this.game.registry.set("selectedTowerType", null);
+    this.clearGhost();
+    const cb = this.game.registry.get("onTowerPlaced") as (() => void) | undefined;
+    cb?.();
+  }
+
+  private updateGhost(x: number, y: number, towerType: string, valid: boolean): void {
+    if (!this.ghost) {
+      this.ghost = this.add.container(0, 0);
+      this.ghost.setDepth(5);
+    }
+    this.ghost.removeAll(true);
+    this.ghost.setPosition(x, y);
+
+    const def = getTower(towerType);
+    const towerColor = def?.color ?? 0x8b5cf6;
+    const color = valid ? towerColor : 0xef4444;
+    const alpha = valid ? 0.65 : 0.4;
+
+    const g = this.add.graphics();
+    if (valid && def) {
+      // Reichweiten-Ring
+      g.lineStyle(1, color, 0.2);
+      g.strokeCircle(0, 0, def.range);
+    }
+    g.fillStyle(color, alpha);
+    g.fillRect(-14, -14, 28, 28);
+    g.lineStyle(2, valid ? 0xffffff : 0xff8888, 0.7);
+    g.strokeRect(-14, -14, 28, 28);
+    this.ghost.add(g);
+  }
+
+  private clearGhost(): void {
+    if (this.ghost) { this.ghost.destroy(); this.ghost = null; }
   }
 
   private subscribeEnemies(): void {
@@ -312,15 +394,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createTowerSprite(tower: Tower, key: string): void {
-    const lane = this.lanes[tower.laneIndex];
-    if (!lane) return;
-    const { x, y } = slotXY(lane, tower.slotIndex);
     const def = getTower(tower.towerType);
     const color = def?.color ?? 0x8b5cf6;
     const base = this.add.rectangle(0, 0, 28, 28, color);
     base.setStrokeStyle(2, 0x000000, 0.5);
     const tip = this.add.triangle(0, -10, 0, -8, -8, 8, 8, 8, 0xffffff, 0.85);
-    const container = this.add.container(x, y, [base, tip]);
+    const container = this.add.container(tower.px, tower.py, [base, tip]);
     container.setDepth(2);
     container.setSize(36, 36);
     container.setInteractive({ useHandCursor: true });
@@ -370,14 +449,6 @@ export class GameScene extends Phaser.Scene {
 
   // ─── Tower-Menü ──────────────────────────────────────────────────────────────
 
-  private onGlobalClick(): void {
-    if (this.menuClickConsumed) {
-      this.menuClickConsumed = false;
-      return;
-    }
-    this.closeTowerMenu();
-  }
-
   private onTowerClick(key: string): void {
     if (!this.room) return;
     if (this.activeMenu?.towerId === key) {
@@ -391,9 +462,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private openTowerMenu(tower: Tower, key: string): void {
-    const lane = this.lanes[tower.laneIndex];
-    if (!lane) return;
-    const { x, y } = slotXY(lane, tower.slotIndex);
+    const x = tower.px;
+    const y = tower.py;
     const def = getTower(tower.towerType);
     if (!def) return;
 

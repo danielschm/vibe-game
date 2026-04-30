@@ -26,20 +26,21 @@ const bPlayer = a.state.players.get(b.sessionId);
 
 console.log(`Anna lane=${aPlayer.laneIndex}, Ben lane=${bPlayer.laneIndex}`);
 
-console.log(`→ Ben tries to build on Anna's lane (${aPlayer.laneIndex}, slot 1)...`);
+const LANE_Y = [100, 265, 415];
+console.log(`→ Ben tries to build on Anna's lane (${aPlayer.laneIndex})...`);
 b.send("BUY_TOWER", {
   laneIndex: aPlayer.laneIndex,
-  slotIndex: 1,
+  px: 300, py: LANE_Y[aPlayer.laneIndex] ?? 100, laneProgress: 0.29,
   towerType: "archer",
 });
 await wait(300);
 const towersAfterIllegal = a.state.towers.size;
 console.log(`  towers in state: ${towersAfterIllegal} (expected: 0)`);
 
-console.log(`→ Ben builds on his own lane (${bPlayer.laneIndex}, slot 1)...`);
+console.log(`→ Ben builds on his own lane (${bPlayer.laneIndex})...`);
 b.send("BUY_TOWER", {
   laneIndex: bPlayer.laneIndex,
-  slotIndex: 1,
+  px: 300, py: LANE_Y[bPlayer.laneIndex] ?? 265, laneProgress: 0.29,
   towerType: "archer",
 });
 await wait(300);

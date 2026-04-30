@@ -16,7 +16,11 @@ export type MessageType = (typeof MessageType)[keyof typeof MessageType];
 
 export interface BuyTowerMessage {
   laneIndex: number;
-  slotIndex: number;
+  /** Canvas-Pixel-Koordinaten des gewählten Platzes. */
+  px: number;
+  py: number;
+  /** Pfad-Fortschritt 0–1 — vom Client berechnet, für Server-Range-Checks. */
+  laneProgress: number;
   towerType: string;
 }
 

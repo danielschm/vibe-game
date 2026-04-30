@@ -25,7 +25,12 @@ export class Tower extends Schema {
   @type("string") towerType = "";
   @type("string") ownerId = "";
   @type("number") laneIndex = 0;
-  @type("number") slotIndex = 0;
+  /** Canvas-Pixel-X des Towers (vom Client geliefert, für Rendering). */
+  @type("number") px = 0;
+  /** Canvas-Pixel-Y des Towers (vom Client geliefert, für Rendering). */
+  @type("number") py = 0;
+  /** Fortschritt 0–1 entlang des Pfads — für Server-seitigen Range-Check. */
+  @type("number") laneProgress = 0;
   @type("number") level = 1;
   /** Server-only — nicht synchronisiert. */
   cooldownTimer = 0;

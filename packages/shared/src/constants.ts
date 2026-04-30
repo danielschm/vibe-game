@@ -5,8 +5,8 @@ export const GAME_CONSTANTS = {
   LANE_LENGTH: 800,
   /** Höhe einer Lane in In-Game-Pixeln. */
   LANE_HEIGHT: 100,
-  /** Anzahl Slot-Positionen pro Lane, an denen Türme gebaut werden können. */
-  TOWER_SLOTS_PER_LANE: 8,
+  /** Kollisionsradius eines Towers in Canvas-Pixeln. */
+  TOWER_RADIUS: 20,
   /** Maximale gemeinsame Basis-HP. */
   BASE_HP_MAX: 100,
   /** Start-Gold pro Spieler — reicht für 3 Bogenschützen zum Start. */

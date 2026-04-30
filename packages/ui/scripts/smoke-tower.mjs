@@ -36,19 +36,14 @@ a.send("START_GAME", {});
 await wait(500);
 console.log(`  phase=${a.state.phase} nextWaveIn=${a.state.nextWaveIn.toFixed(1)}`);
 
-console.log("→ Each player places 2 archers on their lane (slots 2, 5)...");
+// Freie Canvas-Positionen je Lane (y-Mitte: Lane0=100, Lane1=265, Lane2=415)
+const LANE_Y = [100, 265, 415];
+console.log("→ Each player places 2 archers on their lane (positions 280, 600)...");
 for (const room of [a, b, c]) {
   const me = room.state.players.get(room.sessionId);
-  room.send("BUY_TOWER", {
-    laneIndex: me.laneIndex,
-    slotIndex: 2,
-    towerType: "archer",
-  });
-  room.send("BUY_TOWER", {
-    laneIndex: me.laneIndex,
-    slotIndex: 5,
-    towerType: "archer",
-  });
+  const ly = LANE_Y[me.laneIndex] ?? 100;
+  room.send("BUY_TOWER", { laneIndex: me.laneIndex, px: 280, py: ly, laneProgress: 0.27, towerType: "archer" });
+  room.send("BUY_TOWER", { laneIndex: me.laneIndex, px: 600, py: ly, laneProgress: 0.66, towerType: "archer" });
 }
 await wait(500);
 console.log(`  towers in state: ${a.state.towers.size}`);

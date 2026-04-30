@@ -106,7 +106,7 @@ export class GameRoom extends Room<GameState> {
     if (!player) return;
     if (!payload || typeof payload.laneIndex !== "number") return;
 
-    if (payload.laneIndex !== player.laneIndex) return; // nur die eigene Lane
+    if (payload.laneIndex !== player.laneIndex) return;
 
     const def = getTower(payload.towerType);
     if (!def) return;
@@ -114,16 +114,21 @@ export class GameRoom extends Room<GameState> {
     if ((def.unlockAfterKills ?? 0) > this.state.enemiesKilled) return;
 
     if (
-      payload.slotIndex < 0 ||
-      payload.slotIndex >= GAME_CONSTANTS.TOWER_SLOTS_PER_LANE
+      typeof payload.px !== "number" ||
+      typeof payload.py !== "number" ||
+      typeof payload.laneProgress !== "number" ||
+      payload.laneProgress < 0 ||
+      payload.laneProgress > 1
     ) {
       return;
     }
 
+    // Kollision mit bestehenden Towers (Canvas-Pixel-Abstand)
+    const TOWER_DIAMETER = 40; // 2 × TOWER_RADIUS
     for (const t of this.state.towers.values()) {
-      if (t.laneIndex === payload.laneIndex && t.slotIndex === payload.slotIndex) {
-        return; // Slot belegt
-      }
+      const dx = t.px - payload.px;
+      const dy = t.py - payload.py;
+      if (dx * dx + dy * dy < TOWER_DIAMETER * TOWER_DIAMETER) return;
     }
 
     if (player.gold < def.cost) return;
@@ -135,14 +140,16 @@ export class GameRoom extends Room<GameState> {
     tower.towerType = def.id;
     tower.ownerId = sessionId;
     tower.laneIndex = payload.laneIndex;
-    tower.slotIndex = payload.slotIndex;
+    tower.px = payload.px;
+    tower.py = payload.py;
+    tower.laneProgress = payload.laneProgress;
     tower.level = 1;
     tower.cooldownTimer = 0;
     this.state.towers.set(tower.id, tower);
 
     console.log(
       `[GameRoom ${this.state.joinCode}] ${player.name} bought ${def.name} ` +
-        `on lane ${payload.laneIndex} slot ${payload.slotIndex}`,
+        `on lane ${payload.laneIndex} at (${Math.round(payload.px)}, ${Math.round(payload.py)})`,
     );
   }
 

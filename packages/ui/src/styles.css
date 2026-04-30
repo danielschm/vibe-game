@@ -448,6 +448,11 @@ input[type="text"]:focus {
   border: 1px solid transparent;
 }
 
+.tower-entry:not(.locked):hover {
+  border-color: var(--accent);
+  background: var(--bg-3);
+}
+
 .tower-entry.broke {
   opacity: 0.55;
 }
@@ -457,10 +462,23 @@ input[type="text"]:focus {
   filter: grayscale(0.5);
 }
 
+.tower-entry.selected {
+  border-color: var(--accent);
+  background: rgba(155, 188, 255, 0.1);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 .lock-label {
   margin-left: 0.5rem;
   font-size: 0.72rem;
   color: var(--muted);
+  font-weight: 400;
+}
+
+.select-label {
+  margin-left: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--accent);
   font-weight: 400;
 }
 

@@ -12,9 +12,11 @@ import { useRoomStateTick } from "../hooks/useRoomState";
 interface HudProps {
   room: Room<GameState>;
   onLeave: () => void;
+  selectedTowerType: string | null;
+  onSelectTower: (typeId: string | null) => void;
 }
 
-export function Hud({ room, onLeave }: HudProps) {
+export function Hud({ room, onLeave, selectedTowerType, onSelectTower }: HudProps) {
   useRoomStateTick(room);
 
   const state = room.state;
@@ -108,11 +110,19 @@ export function Hud({ room, onLeave }: HudProps) {
               tower={tower}
               player={me ?? undefined}
               killCount={killCount}
+              selected={selectedTowerType === tower.id}
+              onSelect={() => {
+                const locked = (tower.unlockAfterKills ?? 0) > killCount;
+                if (locked) return;
+                onSelectTower(selectedTowerType === tower.id ? null : tower.id);
+              }}
             />
           ))}
         </ul>
         <p className="muted small">
-          Klicke einen freien Slot auf <strong>deiner Lane</strong>, um zu bauen.
+          {selectedTowerType
+            ? "Klicke auf deine Lane zum Platzieren."
+            : "Turm auswählen, dann auf Lane klicken."}
         </p>
       </section>
 
@@ -132,17 +142,30 @@ function TowerEntry({
   tower,
   player,
   killCount,
+  selected,
+  onSelect,
 }: {
   tower: TowerDefinition;
   player: Player | undefined;
   killCount: number;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   const locked = (tower.unlockAfterKills ?? 0) > killCount;
   const affordable = !locked && (player?.gold ?? 0) >= tower.cost;
   const stats = getEffectiveTowerStats(tower, 1);
 
+  let cls = "tower-entry";
+  if (locked) cls += " locked";
+  else if (selected) cls += " selected";
+  else if (!affordable) cls += " broke";
+
   return (
-    <li className={`tower-entry ${locked ? "locked" : affordable ? "" : "broke"}`}>
+    <li
+      className={cls}
+      onClick={onSelect}
+      style={{ cursor: locked ? "default" : "pointer" }}
+    >
       <div
         className="tower-swatch"
         style={{ background: `#${tower.color.toString(16).padStart(6, "0")}` }}
@@ -151,10 +174,11 @@ function TowerEntry({
         <div className="tower-name">
           {tower.name}
           {locked && <span className="lock-label">{tower.unlockAfterKills} kills</span>}
+          {selected && <span className="select-label">ausgewählt</span>}
         </div>
         {!locked && (
           <div className="tower-stats muted">
-            🪙{tower.cost} · ⚔{stats.damage} · 🎯{tower.range} · {tower.fireRate}/s
+            {tower.cost}g · {stats.damage} Schaden · R{tower.range} · {tower.fireRate}/s
           </div>
         )}
       </div>

@@ -25,15 +25,14 @@ await wait(200);
 a.send("START_GAME", {});
 await wait(500);
 
-console.log("→ Each player buys archers on slots 1, 4, 6 of their lane...");
+const LANE_Y = [100, 265, 415];
+const POSITIONS = [{ px: 200, lp: 0.17 }, { px: 480, lp: 0.51 }, { px: 720, lp: 0.80 }];
+console.log("→ Each player buys archers at 3 positions on their lane...");
 for (const room of [a, b, c]) {
   const me = room.state.players.get(room.sessionId);
-  for (const slot of [1, 4, 6]) {
-    room.send("BUY_TOWER", {
-      laneIndex: me.laneIndex,
-      slotIndex: slot,
-      towerType: "archer",
-    });
+  const ly = LANE_Y[me.laneIndex] ?? 100;
+  for (const { px, lp } of POSITIONS) {
+    room.send("BUY_TOWER", { laneIndex: me.laneIndex, px, py: ly, laneProgress: lp, towerType: "archer" });
   }
 }
 await wait(500);

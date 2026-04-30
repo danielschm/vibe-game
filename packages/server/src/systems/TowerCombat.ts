@@ -14,10 +14,8 @@ import {
 type FireTarget = { id: string; progress: number; laneIndex: number };
 export type OnFireCallback = (towerId: string, targets: FireTarget[]) => void;
 
-export function towerLaneX(slotIndex: number): number {
-  return (
-    ((slotIndex + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE) * GAME_CONSTANTS.LANE_LENGTH
-  );
+export function towerLaneX(tower: Tower): number {
+  return tower.laneProgress * GAME_CONSTANTS.LANE_LENGTH;
 }
 
 export function updateTowerCombat(state: GameState, dt: number, onFire?: OnFireCallback): void {
@@ -231,7 +229,7 @@ function updateStatusEffects(state: GameState, dt: number): void {
 }
 
 function findTarget(state: GameState, tower: Tower, range: number): Enemy | null {
-  const towerX = towerLaneX(tower.slotIndex);
+  const towerX = towerLaneX(tower);
   let best: Enemy | null = null;
   let bestProgress = -1;
 
