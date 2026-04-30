@@ -2,6 +2,7 @@ import type { Room } from "colyseus.js";
 import {
   MessageType,
   listTowers,
+  getEffectiveTowerStats,
   type GameState,
   type Player,
   type TowerDefinition,
@@ -21,11 +22,17 @@ export function Hud({ room, onLeave }: HudProps) {
   const players = Array.from(state.players.values()) as Player[];
   const baseRatio = state.baseHpMax > 0 ? state.baseHp / state.baseHpMax : 0;
   const towers = listTowers();
+  const killCount = (state as unknown as GameState).enemiesKilled ?? 0;
 
   const isPaused = state.nextWaveIn > 0;
   const isWon = state.phase === "won";
   const isLost = state.phase === "lost";
   const isPlaying = state.phase === "playing";
+
+  // Nächster noch nicht freigeschalteter Tower
+  const nextUnlock = towers
+    .filter((t) => (t.unlockAfterKills ?? 0) > killCount)
+    .sort((a, b) => (a.unlockAfterKills ?? 0) - (b.unlockAfterKills ?? 0))[0];
 
   return (
     <aside className="hud">
@@ -54,6 +61,28 @@ export function Hud({ room, onLeave }: HudProps) {
       </section>
 
       <section className="hud-section">
+        <div className="hud-row">
+          <span className="hud-label">Kills</span>
+          <span className="hud-value">{killCount}</span>
+        </div>
+        {nextUnlock && (
+          <div className="unlock-progress">
+            <span className="muted small">
+              {nextUnlock.name} bei {nextUnlock.unlockAfterKills}
+            </span>
+            <div className="unlock-bar">
+              <div
+                className="unlock-fill"
+                style={{
+                  width: `${Math.min(100, (killCount / (nextUnlock.unlockAfterKills ?? 1)) * 100)}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="hud-section">
         <h3 className="hud-heading">Spieler</h3>
         <ul className="player-mini-list">
           {players.map((p) => (
@@ -74,7 +103,12 @@ export function Hud({ room, onLeave }: HudProps) {
         <h3 className="hud-heading">Türme</h3>
         <ul className="tower-list">
           {towers.map((tower) => (
-            <TowerEntry key={tower.id} tower={tower} room={room} player={me ?? undefined} />
+            <TowerEntry
+              key={tower.id}
+              tower={tower}
+              player={me ?? undefined}
+              killCount={killCount}
+            />
           ))}
         </ul>
         <p className="muted small">
@@ -83,10 +117,7 @@ export function Hud({ room, onLeave }: HudProps) {
       </section>
 
       {(isWon || isLost) && me?.isHost && (
-        <button
-          className="primary"
-          onClick={() => room.send(MessageType.RESTART, {})}
-        >
+        <button className="primary" onClick={() => room.send(MessageType.RESTART, {})}>
           Zurück zur Lobby
         </button>
       )}
@@ -100,23 +131,32 @@ export function Hud({ room, onLeave }: HudProps) {
 function TowerEntry({
   tower,
   player,
+  killCount,
 }: {
   tower: TowerDefinition;
-  room: Room<GameState>;
   player: Player | undefined;
+  killCount: number;
 }) {
-  const affordable = (player?.gold ?? 0) >= tower.cost;
+  const locked = (tower.unlockAfterKills ?? 0) > killCount;
+  const affordable = !locked && (player?.gold ?? 0) >= tower.cost;
+  const stats = getEffectiveTowerStats(tower, 1);
+
   return (
-    <li className={`tower-entry ${affordable ? "" : "broke"}`}>
+    <li className={`tower-entry ${locked ? "locked" : affordable ? "" : "broke"}`}>
       <div
         className="tower-swatch"
         style={{ background: `#${tower.color.toString(16).padStart(6, "0")}` }}
       />
       <div className="tower-meta">
-        <div className="tower-name">{tower.name}</div>
-        <div className="tower-stats muted">
-          🪙{tower.cost} · ⚔{tower.damage} · 🎯{tower.range} · {tower.fireRate}/s
+        <div className="tower-name">
+          {tower.name}
+          {locked && <span className="lock-label">{tower.unlockAfterKills} kills</span>}
         </div>
+        {!locked && (
+          <div className="tower-stats muted">
+            🪙{tower.cost} · ⚔{stats.damage} · 🎯{tower.range} · {tower.fireRate}/s
+          </div>
+        )}
       </div>
     </li>
   );

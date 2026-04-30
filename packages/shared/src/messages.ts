@@ -6,6 +6,7 @@
 export const MessageType = {
   BUY_TOWER: "BUY_TOWER",
   UPGRADE_TOWER: "UPGRADE_TOWER",
+  TOWER_FIRED: "TOWER_FIRED",
   READY: "READY",
   START_GAME: "START_GAME",
   RESTART: "RESTART",
@@ -37,10 +38,18 @@ export interface RestartMessage {
   _empty?: never;
 }
 
+/** Server → Client: Tower hat geschossen (für Schieß-Animation). */
+export interface TowerFiredEvent {
+  towerId: string;
+  /** Primäres Ziel + Kettenziele (Lightning). Positionen zum Feuerzeitpunkt. */
+  targets: Array<{ id: string; progress: number; laneIndex: number }>;
+}
+
 /** Mapping von MessageType-Konstante auf Payload-Typ. */
 export interface MessagePayloads {
   BUY_TOWER: BuyTowerMessage;
   UPGRADE_TOWER: UpgradeTowerMessage;
+  TOWER_FIRED: TowerFiredEvent;
   READY: ReadyMessage;
   START_GAME: StartGameMessage;
   RESTART: RestartMessage;

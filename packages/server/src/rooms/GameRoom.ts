@@ -44,7 +44,9 @@ export class GameRoom extends Room<GameState> {
     this.state.joinCode = code;
     this.setMetadata({ joinCode: code });
 
-    this.manager = new GameManager(this.state);
+    this.manager = new GameManager(this.state, (towerId, targets) => {
+      this.broadcast(MessageType.TOWER_FIRED, { towerId, targets });
+    });
 
     console.log(`[GameRoom] created room ${this.roomId} with code ${code}`);
 

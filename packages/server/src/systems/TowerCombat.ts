@@ -11,13 +11,16 @@ import {
   type EffectiveTowerStats,
 } from "@vibe-game/shared";
 
+type FireTarget = { id: string; progress: number; laneIndex: number };
+export type OnFireCallback = (towerId: string, targets: FireTarget[]) => void;
+
 export function towerLaneX(slotIndex: number): number {
   return (
     ((slotIndex + 0.5) / GAME_CONSTANTS.TOWER_SLOTS_PER_LANE) * GAME_CONSTANTS.LANE_LENGTH
   );
 }
 
-export function updateTowerCombat(state: GameState, dt: number): void {
+export function updateTowerCombat(state: GameState, dt: number, onFire?: OnFireCallback): void {
   updateStatusEffects(state, dt);
 
   for (const tower of state.towers.values()) {
@@ -33,7 +36,7 @@ export function updateTowerCombat(state: GameState, dt: number): void {
     const target = findTarget(state, tower, stats.range);
     if (!target) continue;
 
-    processShot(state, tower, def, target, stats);
+    processShot(state, tower, def, target, stats, onFire);
     tower.cooldownTimer = 1 / stats.fireRate;
   }
 }
@@ -44,11 +47,15 @@ function processShot(
   def: TowerDefinition,
   target: Enemy,
   stats: EffectiveTowerStats,
+  onFire?: OnFireCallback,
 ): void {
   if (!state.enemies.has(target.id)) return;
 
   const resMult = getResistanceMultiplier(def, target);
   const damage = stats.damage * resMult;
+
+  // Positionen vor dem Schaden einsammeln, damit der Client sie animieren kann
+  onFire?.(tower.id, collectFireTargets(state, tower, target, stats));
 
   if (stats.effect?.type === "chain") {
     applyChain(state, tower, target, damage, stats.effect);
@@ -63,6 +70,29 @@ function processShot(
       applyStatusEffect(target, stats.effect, tower.ownerId);
     }
   }
+}
+
+function collectFireTargets(
+  state: GameState,
+  tower: Tower,
+  primary: Enemy,
+  stats: EffectiveTowerStats,
+): FireTarget[] {
+  const result: FireTarget[] = [
+    { id: primary.id, progress: primary.progress, laneIndex: primary.laneIndex },
+  ];
+  if (stats.effect?.type !== "chain") return result;
+
+  const hit = new Set([primary.id]);
+  let current: Enemy = primary;
+  for (let i = 1; i < stats.effect.maxTargets; i++) {
+    const next = findChainNext(state, current, hit, tower.laneIndex);
+    if (!next) break;
+    hit.add(next.id);
+    result.push({ id: next.id, progress: next.progress, laneIndex: next.laneIndex });
+    current = next;
+  }
+  return result;
 }
 
 function dealDamage(state: GameState, tower: Tower, enemy: Enemy, damage: number): void {

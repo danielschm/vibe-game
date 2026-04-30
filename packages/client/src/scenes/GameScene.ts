@@ -4,11 +4,14 @@ import {
   GAME_CONSTANTS,
   MessageType,
   getEnemy,
+  getEffectiveTowerStats,
   getLevel,
   getTower,
   type Enemy,
   type GameState,
+  type Player,
   type Tower,
+  type TowerFiredEvent,
 } from "@vibe-game/shared";
 import { GAME_VIEWPORT } from "../game";
 
@@ -99,12 +102,16 @@ export class GameScene extends Phaser.Scene {
   private towerSprites = new Map<string, Phaser.GameObjects.Container>();
   private sceneAlive = false;
 
+  private activeMenu: { container: Phaser.GameObjects.Container; towerId: string } | null = null;
+  private menuClickConsumed = false;
+
   constructor() {
     super({ key: "Game" });
   }
 
   create(): void {
     this.sceneAlive = true;
+    this.menuClickConsumed = false;
     this.events.once(Phaser.Scenes.Events.DESTROY, () => { this.sceneAlive = false; });
 
     this.room = (this.game.registry.get("room") as Room<GameState> | undefined) ?? null;
@@ -133,6 +140,12 @@ export class GameScene extends Phaser.Scene {
       this.syncTowerSprites();
       this.refreshSlotInteractivity();
     });
+
+    this.room.onMessage(MessageType.TOWER_FIRED, (data: TowerFiredEvent) => {
+      if (this.sceneAlive) this.playShootAnim(data);
+    });
+
+    this.input.on("pointerdown", this.onGlobalClick, this);
   }
 
   override update(): void {
@@ -182,7 +195,6 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < this.lanes.length; i++) {
       const lane = this.lanes[i];
 
-      // Pfad als breite Polylinie
       g.lineStyle(12, trackColor, 1);
       g.beginPath();
       g.moveTo(lane.waypoints[0].x, lane.waypoints[0].y);
@@ -191,7 +203,6 @@ export class GameScene extends Phaser.Scene {
       }
       g.strokePath();
 
-      // Lane-Nummer am Start
       this.add
         .text(lane.waypoints[0].x - 18, lane.waypoints[0].y, `${i + 1}`, {
           fontSize: "18px",
@@ -200,12 +211,10 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(1, 0.5);
 
-      // Basis-Block am Ende
       const end = lane.waypoints[lane.waypoints.length - 1];
       this.add.rectangle(end.x + 20, end.y, 22, 30, baseColor).setOrigin(0.5);
     }
 
-    // Verbindungsbalken der Basis-Blöcke
     const endPts = this.lanes.map((l) => l.waypoints[l.waypoints.length - 1]);
     const minY = Math.min(...endPts.map((p) => p.y));
     const maxY = Math.max(...endPts.map((p) => p.y));
@@ -263,10 +272,11 @@ export class GameScene extends Phaser.Scene {
   private onSlotClick(laneIndex: number, slotIndex: number): void {
     if (!this.room) return;
     if (laneIndex !== this.getMyLane()) return;
+    this.menuClickConsumed = true;
     this.room.send(MessageType.BUY_TOWER, {
       laneIndex,
       slotIndex,
-      towerType: "archer", // einziger Tower in Phase 1 — Picker kommt in Schritt 9
+      towerType: "archer",
     });
   }
 
@@ -290,6 +300,7 @@ export class GameScene extends Phaser.Scene {
       hpFill.setOrigin(0, 0.5);
 
       const container = this.add.container(0, 0, [body, hpBg, hpFill]);
+      container.setDepth(1);
       this.enemyViews.set(key, { container, hpFill });
     });
 
@@ -310,6 +321,15 @@ export class GameScene extends Phaser.Scene {
     base.setStrokeStyle(2, 0x000000, 0.5);
     const tip = this.add.triangle(0, -10, 0, -8, -8, 8, 8, 8, 0xffffff, 0.85);
     const container = this.add.container(x, y, [base, tip]);
+    container.setDepth(2);
+    container.setSize(36, 36);
+    container.setInteractive({ useHandCursor: true });
+    container.on("pointerdown", () => {
+      this.menuClickConsumed = true;
+      this.onTowerClick(key);
+    });
+    container.on("pointerover", () => base.setStrokeStyle(3, 0xffffff, 0.8));
+    container.on("pointerout", () => base.setStrokeStyle(2, 0x000000, 0.5));
     this.towerSprites.set(key, container);
   }
 
@@ -345,6 +365,449 @@ export class GameScene extends Phaser.Scene {
       if (!this.sceneAlive) return;
       this.towerSprites.get(key)?.destroy();
       this.towerSprites.delete(key);
+    });
+  }
+
+  // ─── Tower-Menü ──────────────────────────────────────────────────────────────
+
+  private onGlobalClick(): void {
+    if (this.menuClickConsumed) {
+      this.menuClickConsumed = false;
+      return;
+    }
+    this.closeTowerMenu();
+  }
+
+  private onTowerClick(key: string): void {
+    if (!this.room) return;
+    if (this.activeMenu?.towerId === key) {
+      this.closeTowerMenu();
+      return;
+    }
+    this.closeTowerMenu();
+    const tower = (this.room.state.towers as unknown as Map<string, Tower>).get(key);
+    if (!tower) return;
+    this.openTowerMenu(tower, key);
+  }
+
+  private openTowerMenu(tower: Tower, key: string): void {
+    const lane = this.lanes[tower.laneIndex];
+    if (!lane) return;
+    const { x, y } = slotXY(lane, tower.slotIndex);
+    const def = getTower(tower.towerType);
+    if (!def) return;
+
+    const myId = this.room!.sessionId;
+    const isOwn = tower.ownerId === myId;
+    const me = (this.room!.state.players as unknown as Map<string, Player>).get(myId);
+    const myGold = me?.gold ?? 0;
+    const killCount = (this.room!.state as unknown as GameState).enemiesKilled ?? 0;
+    const stats = getEffectiveTowerStats(def, tower.level);
+
+    const container = this.add.container(x, y);
+    container.setDepth(10);
+
+    // Hintergrund-Kreis
+    const bg = this.add.graphics();
+    bg.fillStyle(0x080814, 0.93);
+    bg.lineStyle(2, def.color, 0.85);
+    bg.fillCircle(0, 0, 72);
+    bg.strokeCircle(0, 0, 72);
+    container.add(bg);
+
+    // Tower-Name
+    container.add(
+      this.add
+        .text(0, -54, def.name, { fontSize: "11px", color: "#ffffff", fontStyle: "bold" })
+        .setOrigin(0.5),
+    );
+
+    // Level-Anzeige mit Tower-Farbe
+    const levelColor = `#${def.color.toString(16).padStart(6, "0")}`;
+    container.add(
+      this.add
+        .text(0, -40, `Level ${tower.level}`, { fontSize: "9px", color: levelColor })
+        .setOrigin(0.5),
+    );
+
+    // Stats
+    container.add(
+      this.add
+        .text(0, -24, `${stats.damage} Schaden  ·  ${stats.fireRate.toFixed(1)}/s\nReichweite ${stats.range}`, {
+          fontSize: "9px",
+          color: "#7080a0",
+          align: "center",
+        })
+        .setOrigin(0.5),
+    );
+
+    // Effekt-Zeile
+    if (stats.effect) {
+      const effectLabel = this.effectLabel(stats.effect);
+      container.add(
+        this.add
+          .text(0, -8, effectLabel, { fontSize: "8px", color: "#a0b0c0", align: "center" })
+          .setOrigin(0.5),
+      );
+    }
+
+    // Upgrade-Bereich (nur eigene Türme)
+    if (isOwn) {
+      const upgradeIdx = tower.level - 1;
+      const upgrade = def.upgrades?.[upgradeIdx];
+
+      if (upgrade) {
+        const unlockKills = upgrade.unlockAfterKills ?? 0;
+        const isUnlocked = unlockKills <= killCount;
+        const canAfford = myGold >= upgrade.cost;
+        const btnColor = isUnlocked && canAfford ? 0x22c55e : isUnlocked ? 0xeab308 : 0x3a3a5c;
+
+        const btn = this.add.rectangle(0, 38, 124, 22, btnColor, 0.92);
+        container.add(btn);
+
+        const label = isUnlocked
+          ? `${upgrade.label}  ${upgrade.cost}g`
+          : `${upgrade.label}  (${unlockKills} kills)`;
+        container.add(
+          this.add
+            .text(0, 38, label, { fontSize: "9px", color: "#ffffff", align: "center" })
+            .setOrigin(0.5),
+        );
+
+        if (isUnlocked && canAfford) {
+          btn.setInteractive({ useHandCursor: true });
+          btn.on("pointerdown", () => {
+            this.menuClickConsumed = true;
+            this.room!.send(MessageType.UPGRADE_TOWER, { towerId: tower.id });
+            this.closeTowerMenu();
+          });
+          btn.on("pointerover", () => btn.setFillStyle(btnColor, 0.65));
+          btn.on("pointerout", () => btn.setFillStyle(btnColor, 0.92));
+        }
+      } else {
+        container.add(
+          this.add
+            .text(0, 38, "Max Level", { fontSize: "9px", color: "#4a5a7a" })
+            .setOrigin(0.5),
+        );
+      }
+    } else {
+      // Fremder Tower: nur Info-Zeile
+      container.add(
+        this.add
+          .text(0, 38, `Lane ${tower.laneIndex + 1}`, { fontSize: "9px", color: "#4a5a7a" })
+          .setOrigin(0.5),
+      );
+    }
+
+    // Einblenden
+    container.setAlpha(0).setScale(0.65);
+    this.tweens.add({
+      targets: container,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 140,
+      ease: "Back.Out",
+    });
+
+    this.activeMenu = { container, towerId: key };
+  }
+
+  private closeTowerMenu(): void {
+    if (!this.activeMenu) return;
+    const c = this.activeMenu.container;
+    this.activeMenu = null;
+    this.tweens.add({
+      targets: c,
+      alpha: 0,
+      scaleX: 0.7,
+      scaleY: 0.7,
+      duration: 100,
+      ease: "Power2",
+      onComplete: () => c.destroy(),
+    });
+  }
+
+  private effectLabel(effect: NonNullable<ReturnType<typeof getEffectiveTowerStats>["effect"]>): string {
+    switch (effect.type) {
+      case "slow": return `Slow ${Math.round(effect.factor * 100)}%  ${effect.duration}s`;
+      case "freeze": return `Freeze ${effect.duration}s`;
+      case "burn": return `Burn ${effect.dpsPercent}%/s  ${effect.duration}s`;
+      case "splash": return `Splash r${effect.radius}`;
+      case "chain": return `Chain x${effect.maxTargets}  ${Math.round(effect.damageFalloff * 100)}%`;
+      default: return "";
+    }
+  }
+
+  // ─── Schieß-Animationen ───────────────────────────────────────────────────────
+
+  private playShootAnim(data: TowerFiredEvent): void {
+    if (!this.room || !data.targets.length) return;
+    const sprite = this.towerSprites.get(data.towerId);
+    if (!sprite) return;
+    const tower = (this.room.state.towers as unknown as Map<string, Tower>).get(data.towerId);
+    if (!tower) return;
+    const def = getTower(tower.towerType);
+    if (!def?.shootAnim) return;
+
+    const from: Vec2 = { x: sprite.x, y: sprite.y };
+    const primary = data.targets[0];
+    const lane = this.lanes[primary.laneIndex];
+    if (!lane) return;
+    const to = samplePath(lane, primary.progress);
+
+    const { style, color: animColor, speed = 350 } = def.shootAnim;
+    const color = animColor ?? def.color;
+
+    switch (style) {
+      case "arrow":      this.spawnArrow(from, to, speed, color); break;
+      case "cannonball": this.spawnCannonball(from, to, speed); break;
+      case "bolt":       this.spawnBolt(from, data.targets); break;
+      case "orb":        this.spawnOrb(from, to, speed, color, def.element); break;
+      case "beam":       this.spawnOrb(from, to, speed, color, def.element); break;
+    }
+  }
+
+  private getTargetPos(t: { progress: number; laneIndex: number }): Vec2 {
+    const lane = this.lanes[t.laneIndex];
+    return lane ? samplePath(lane, t.progress) : { x: 0, y: 0 };
+  }
+
+  // Pfeil (neutral — Bogenschütze)
+  private spawnArrow(from: Vec2, to: Vec2, speed: number, color: number): void {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
+
+    const g = this.add.graphics();
+    g.fillStyle(color, 0.95);
+    g.fillRect(-9, -1.5, 11, 3);
+    g.fillTriangle(2, -3.5, 7, 0, 2, 3.5);
+    g.setPosition(from.x, from.y);
+    g.setRotation(Math.atan2(dy, dx));
+    g.setDepth(3);
+
+    this.tweens.add({
+      targets: g,
+      x: to.x,
+      y: to.y,
+      duration: (dist / speed) * 1000,
+      ease: "Linear",
+      onComplete: () => {
+        g.destroy();
+        this.spawnHitFlash(to.x, to.y, color, 7);
+      },
+    });
+  }
+
+  // Kanonenkugel (fire — Kanone)
+  private spawnCannonball(from: Vec2, to: Vec2, speed: number): void {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
+
+    const g = this.add.graphics();
+    g.fillStyle(0xef4444, 1);
+    g.fillCircle(0, 0, 6);
+    g.fillStyle(0xff8822, 0.7);
+    g.fillCircle(-1, -1, 3);
+    g.setPosition(from.x, from.y);
+    g.setDepth(3);
+
+    this.tweens.add({
+      targets: g,
+      x: to.x,
+      y: to.y,
+      duration: (dist / speed) * 1000,
+      ease: "Linear",
+      onComplete: () => {
+        g.destroy();
+        this.spawnExplosion(to.x, to.y);
+      },
+    });
+  }
+
+  private spawnExplosion(x: number, y: number): void {
+    const g = this.add.graphics();
+    g.setPosition(x, y);
+    g.setDepth(3);
+    g.fillStyle(0xff8822, 0.55);
+    g.fillCircle(0, 0, 10);
+    g.lineStyle(2, 0xef4444, 0.9);
+    g.strokeCircle(0, 0, 10);
+    this.tweens.add({
+      targets: g,
+      scaleX: 3.5,
+      scaleY: 3.5,
+      alpha: 0,
+      duration: 320,
+      ease: "Power2",
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  // Blitz (lightning — Blitzturm, sofortige Zickzack-Linie)
+  private spawnBolt(from: Vec2, targets: Array<{ progress: number; laneIndex: number }>): void {
+    const g = this.add.graphics();
+    g.setDepth(3);
+
+    const t0 = this.getTargetPos(targets[0]);
+    this.drawZigzag(g, from, t0, 0xfbbf24, 2.5);
+
+    for (let i = 1; i < targets.length; i++) {
+      const prev = this.getTargetPos(targets[i - 1]);
+      const curr = this.getTargetPos(targets[i]);
+      this.drawZigzag(g, prev, curr, 0x93c5fd, 1.5);
+    }
+
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 220,
+      ease: "Linear",
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  private drawZigzag(
+    g: Phaser.GameObjects.Graphics,
+    from: Vec2,
+    to: Vec2,
+    color: number,
+    lineWidth: number,
+  ): void {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 2) return;
+
+    const perpX = -dy / dist;
+    const perpY = dx / dist;
+    const amp = Math.min(8, dist * 0.1);
+    const segs = 5;
+
+    const pts: Vec2[] = [from];
+    for (let i = 1; i < segs; i++) {
+      const t = i / segs;
+      const sign = i % 2 === 0 ? 1 : -1;
+      pts.push({ x: from.x + dx * t + perpX * sign * amp, y: from.y + dy * t + perpY * sign * amp });
+    }
+    pts.push(to);
+
+    // Glow (breite halbtransparente Linie)
+    g.lineStyle(lineWidth * 3, color, 0.2);
+    g.beginPath();
+    g.moveTo(pts[0].x, pts[0].y);
+    for (const p of pts.slice(1)) g.lineTo(p.x, p.y);
+    g.strokePath();
+
+    // Kern-Linie
+    g.lineStyle(lineWidth, color, 1);
+    g.beginPath();
+    g.moveTo(pts[0].x, pts[0].y);
+    for (const p of pts.slice(1)) g.lineTo(p.x, p.y);
+    g.strokePath();
+  }
+
+  // Orb (ice — Frostmagier / poison — Giftwerfer, fliegt zum Ziel mit Trail)
+  private spawnOrb(from: Vec2, to: Vec2, speed: number, color: number, element: string): void {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
+
+    const g = this.add.graphics();
+    g.fillStyle(color, 0.9);
+    g.fillCircle(0, 0, 5);
+    g.lineStyle(1, 0xffffff, 0.45);
+    g.strokeCircle(0, 0, 5);
+    g.setPosition(from.x, from.y);
+    g.setDepth(3);
+
+    let lastTX = from.x;
+    let lastTY = from.y;
+
+    this.tweens.add({
+      targets: g,
+      x: to.x,
+      y: to.y,
+      duration: (dist / speed) * 1000,
+      ease: "Linear",
+      onUpdate: () => {
+        const tdx = g.x - lastTX;
+        const tdy = g.y - lastTY;
+        if (tdx * tdx + tdy * tdy >= 144) {
+          lastTX = g.x;
+          lastTY = g.y;
+          const trail = this.add.graphics();
+          trail.fillStyle(color, 0.32);
+          trail.fillCircle(0, 0, 3);
+          trail.setPosition(g.x, g.y);
+          trail.setDepth(3);
+          this.tweens.add({
+            targets: trail,
+            alpha: 0,
+            scaleX: 0.3,
+            scaleY: 0.3,
+            duration: 270,
+            ease: "Linear",
+            onComplete: () => trail.destroy(),
+          });
+        }
+      },
+      onComplete: () => {
+        g.destroy();
+        if (element === "ice") {
+          this.spawnIceCrystal(to.x, to.y, color);
+        } else {
+          this.spawnHitFlash(to.x, to.y, color, 10);
+        }
+      },
+    });
+  }
+
+  private spawnIceCrystal(x: number, y: number, color: number): void {
+    const g = this.add.graphics();
+    g.setPosition(x, y);
+    g.setDepth(3);
+    g.lineStyle(1.5, color, 0.9);
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI;
+      g.lineBetween(
+        Math.cos(angle) * -9, Math.sin(angle) * -9,
+        Math.cos(angle) * 9,  Math.sin(angle) * 9,
+      );
+    }
+    g.lineStyle(1, color, 0.6);
+    g.strokeCircle(0, 0, 5);
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      scaleX: 1.9,
+      scaleY: 1.9,
+      duration: 360,
+      ease: "Power2",
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  private spawnHitFlash(x: number, y: number, color: number, radius = 10): void {
+    const g = this.add.graphics();
+    g.fillStyle(color, 0.8);
+    g.fillCircle(0, 0, radius);
+    g.setPosition(x, y);
+    g.setDepth(3);
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      scaleX: 1.9,
+      scaleY: 1.9,
+      duration: 200,
+      ease: "Power2",
+      onComplete: () => g.destroy(),
     });
   }
 }

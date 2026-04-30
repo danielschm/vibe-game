@@ -6,7 +6,7 @@ import {
 } from "@vibe-game/shared";
 import { WaveSpawner } from "./WaveSpawner";
 import { updateEnemyPath } from "./EnemyPath";
-import { updateTowerCombat } from "./TowerCombat";
+import { updateTowerCombat, type OnFireCallback } from "./TowerCombat";
 
 /**
  * Authoritative Spiel-Logik im Server-Tick.
@@ -24,7 +24,10 @@ export class GameManager {
   private waveSpawner = new WaveSpawner();
   private level: LevelDefinition | undefined;
 
-  constructor(private state: GameState) {}
+  constructor(
+    private state: GameState,
+    private onFire?: OnFireCallback,
+  ) {}
 
   /** Wird vom GameRoom aufgerufen, wenn die Phase auf "playing" wechselt. */
   startGame(): void {
@@ -83,7 +86,7 @@ export class GameManager {
 
     // Aktive Welle
     this.waveSpawner.tick(dt, this.state);
-    updateTowerCombat(this.state, dt);
+    updateTowerCombat(this.state, dt, this.onFire);
     updateEnemyPath(this.state, dt);
 
     if (this.waveSpawner.isFinished(this.state)) {
